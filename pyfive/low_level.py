@@ -194,14 +194,34 @@ class DataObjects(object):
         return attrs
 
     def get_data(self):
+
+        # shape from dataspace message
+        msg = self.find_msg_type(DATASPACE_MSG_TYPE)[0]
+        msg_offset = msg['offset_to_message']
+        t = struct.unpack_from('<BBBB I QQ', self.msg_data, msg_offset)
+        version, ndims, flags, r0, r1, dim1_size, dim1_max = t
+        assert version == 1
+        assert ndims == 1
+        assert flags == 1
+        shape = (dim1_size, )
+
+
+        # dtype from datatype message
+        msg = self.find_msg_type(DATATYPE_MSG_TYPE)[0]
+        msg_offset = msg['offset_to_message']
+        dtype_msg = _unpack_struct_from(
+            DATATYPE_MESSAGE, self.msg_data, msg_offset)
+        dtype = dtype_from_datatype_msg(dtype_msg)
+
+        # offset from data storage message
         msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
-        start = msg['offset_to_message']
-        version, layout_class, offset, size = struct.unpack_from(
-            '<BBQQ', self.msg_data, start)
-        self.fh.seek(offset)
+        msg_offset = msg['offset_to_message']
+        version, layout_class, data_offset, size = struct.unpack_from(
+            '<BBQQ', self.msg_data, msg_offset)
+
+        self.fh.seek(data_offset)
         buf = self.fh.read(size)
-        dtype='<i4'
-        shape = (100, )
+
         return np.frombuffer(buf, dtype=dtype).reshape(shape)
 
     def find_msg_type(self, msg_type):
@@ -222,9 +242,7 @@ def unpack_attribute(buf, offset=0):
     offset += _padded_size(name_size)
 
     # read in the datatype information
-    datatype = _unpack_struct_from(DATATYPE_MESSAGE, buf, offset)
-    dtype_version = datatype['class_and_version'] >> 4  # first 4 bits
-    dtype_class = datatype['class_and_version'] & 0x0F  # last 4 bits
+    dtype_msg = _unpack_struct_from(DATATYPE_MESSAGE, buf, offset)
     offset += _padded_size(attr_dict['datatype_size'])
 
     # read in the dataspace information
@@ -232,21 +250,35 @@ def unpack_attribute(buf, offset=0):
     attr_dict['dataspace'] = buf[offset:offset+dataspace_size]
     offset += _padded_size(dataspace_size)
 
+    # read the value of the data
+    dtype = dtype_from_datatype_msg(dtype_msg)
+    value = np.frombuffer(buf, dtype=dtype, count=1, offset=offset)[0]
+    return name, value
+
+
+def dtype_from_datatype_msg(dtype_msg):
+    """ Return the numpy dtype for a given datatype message. """
+    dtype_version = dtype_msg['class_and_version'] >> 4  # first 4 bits
+    dtype_class = dtype_msg['class_and_version'] & 0x0F  # last 4 bits
+
     if dtype_class == 1:  # floating point, assume IEEE.
         # XXX check properties field to check that IEEEE
-        if datatype['size'] == 8:
-            value = struct.unpack_from('<d', buf, offset)[0]
+        if dtype_msg['size'] == 8:
+            return '<f8'
+        if dtype_msg['size'] == 4:
+            return '<f4'
         else:
             raise NotImplementedError
     elif dtype_class == 0:  # fixed-point
         # XXX assuming signed, need to check Fix-point field properties
-        if datatype['size'] == 8:
-            value = struct.unpack_from('<q', buf, offset)[0]
+        if dtype_msg['size'] == 8:
+            return '<i8'
+        elif dtype_msg['size'] == 4:
+            return '<i4'
         else:
             raise NotImplementedError
     else:
         raise NotImplementedError
-    return name, value
 
 
 def _padded_size(size, padding_multipe=8):
