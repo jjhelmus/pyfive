@@ -144,6 +144,7 @@ class Dataset(object):
         self.name = name
         fh.seek(offset)
         self.dataobjects = DataObjects(fh)
+        self.fh = fh
 
     def get_attributes(self):
         """ Return a dictionary of all attributes. """
@@ -156,6 +157,20 @@ class Dataset(object):
             name, value = _unpack_attribute_from_bytes(attr_bytes)
             attrs[name] = value
         return attrs
+
+    def get_data(self):
+        attr_msg = [m for m in self.dataobjects.messages if m['type'] == 8][0]
+        start = attr_msg['offset_to_message']
+        size = attr_msg['size']
+        version, layout_class, offset, size = struct.unpack_from(
+            '<BBQQ', self.dataobjects.message_data, start)
+        print(offset, size)
+        self.fh.seek(offset)
+        buf = self.fh.read(size)
+        dtype='<i4'
+        shape = (100, )
+        return np.frombuffer(buf, dtype=dtype).reshape(shape)
+
 
 
 class Heap(object):

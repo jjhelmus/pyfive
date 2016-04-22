@@ -18,19 +18,23 @@ def test_read_basic_example():
     assert hfile['/example'].shape == (100, )
     hfile.close()
 
+    # reading with ppyhdf5
     hfile = ppyhdf5.HDF5File('basic_example.hdf5')
     assert 'example' in hfile.datasets
+
     dset = hfile.datasets['example']
+
     attrs = dset.get_attributes()
     assert 'bar' in attrs
     assert 'foo' in attrs
     assert attrs['bar'] == 42
     assert attrs['foo'] == 99.5
-    #np.testing.assert_array_equal(
-    #    py_hfile['/example'][:],
-    #    np.arange(100, dtype='int32'))
-    #assert py_hfile['/example'].dtype == np.dtype('int32')
-    #assert py_hfile['/example'].shape == (100, )
+
+    data = dset.get_data()
+    assert data.dtype == np.dtype('int32')
+    assert data.shape == (100, )
+    assert_array_equal(data, np.arange(100, dtype='int32'))
+
     hfile.close()
 
 
