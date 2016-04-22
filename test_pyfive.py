@@ -2,7 +2,7 @@
 import numpy as np
 from numpy.testing import assert_array_equal
 
-import ppyhdf5
+import pyfive
 import h5py
 
 def test_read_basic_example():
@@ -18,8 +18,8 @@ def test_read_basic_example():
     assert hfile['/example'].shape == (100, )
     hfile.close()
 
-    # reading with ppyhdf5
-    hfile = ppyhdf5.HDF5File('basic_example.hdf5')
+    # reading with pyfive
+    hfile = pyfive.HDF5File('basic_example.hdf5')
     assert 'example' in hfile.datasets
 
     dset = hfile.datasets['example']
