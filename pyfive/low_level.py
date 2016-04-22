@@ -44,12 +44,12 @@ class RootGroup(object):
 
         # verify that the DataObject messages agree with the cache
         root_data_objects = DataObjects(fh)
-        assert root_data_objects.messages[0]['type'] == 17
-        assert root_data_objects.messages[0]['size'] == 16
+        assert root_data_objects.msgs[0]['type'] == 17
+        assert root_data_objects.msgs[0]['size'] == 16
 
         symbol_table_message = _unpack_struct_from(
-            SYMBOL_TABLE_MESSAGE, root_data_objects.message_data,
-            root_data_objects.messages[0]['offset_to_message'])
+            SYMBOL_TABLE_MESSAGE, root_data_objects.msg_data,
+            root_data_objects.msgs[0]['offset_to_message'])
         assert symbol_table_message['btree_address'] == address_of_btree
         assert symbol_table_message['heap_address'] == address_of_heap
         entry['symbol_table_message'] = symbol_table_message
@@ -170,9 +170,33 @@ class DataObjects(object):
             messages.append(info)
             offset += 8 + info['size']
 
-        self.messages = messages
-        self.message_data = message_data
+        self.msgs = messages
+        self.msg_data = message_data
         self._header = header
+        self.fh = fh
+
+    def get_attributes(self):
+        """ Return a dictionary of all attributes. """
+        attrs = {}
+        attr_msgs = [m for m in self.msgs if m['type'] == 12]
+        for msg in attr_msgs:
+            offset = msg['offset_to_message']
+            name, value = unpack_attribute(self.msg_data, offset)
+            attrs[name] = value
+        return attrs
+
+    def get_data(self):
+        attr_msg = [m for m in self.msgs if m['type'] == 8][0]
+        start = attr_msg['offset_to_message']
+        size = attr_msg['size']
+        version, layout_class, offset, size = struct.unpack_from(
+            '<BBQQ', self.msg_data, start)
+        print(offset, size)
+        self.fh.seek(offset)
+        buf = self.fh.read(size)
+        dtype='<i4'
+        shape = (100, )
+        return np.frombuffer(buf, dtype=dtype).reshape(shape)
 
 
 def unpack_attribute(buf, offset=0):
