@@ -26,7 +26,7 @@ class HDF5File:
         """ initalize. """
 
         self._fh = open(filename, 'rb')
-        self.superblock = self._get_superblock(self._fh)
+        self.superblock = low_level.SuperBlock(self._fh)
         self.root_group = self._get_root_group(self._fh)
 
         self._fh.seek(self.root_group['address_of_btree'])
@@ -50,20 +50,6 @@ class HDF5File:
 
         self._fh.seek(800)
         self.dataobjects = low_level.DataObjects(self._fh)
-
-    def _get_superblock(self, fh):
-        """ read in the superblock from an open file object. """
-        superblock = low_level._unpack_struct_from_file(
-            low_level.SUPERBLOCK, fh)
-
-        # check
-        assert superblock['format_signature'] == low_level.FORMAT_SIGNATURE
-        assert superblock['superblock_version'] == 0
-        assert superblock['offset_size'] == 8
-        assert superblock['length_size'] == 8
-        assert superblock['free_space_address'] == low_level.UNDEFINED_ADDRESS
-        assert superblock['driver_information_address'] == low_level.UNDEFINED_ADDRESS
-        return superblock
 
     def _get_root_group(self, fh):
         """ Read in the root group symbol table entry from an open file. """

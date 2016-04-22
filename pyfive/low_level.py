@@ -6,6 +6,24 @@ from collections import OrderedDict
 import numpy as np
 
 
+class SuperBlock(object):
+    """
+    Class for represeting the HDF5 Superblock
+    """
+
+    def __init__(self, fh):
+        superblock = _unpack_struct_from_file(SUPERBLOCK, fh)
+
+        # check
+        assert superblock['format_signature'] == FORMAT_SIGNATURE
+        assert superblock['superblock_version'] == 0
+        assert superblock['offset_size'] == 8
+        assert superblock['length_size'] == 8
+        assert superblock['free_space_address'] == UNDEFINED_ADDRESS
+        assert superblock['driver_information_address'] == UNDEFINED_ADDRESS
+        self._contents = superblock
+
+
 class BTree(object):
     """
     Class for working with HDF5 B-Trees.
