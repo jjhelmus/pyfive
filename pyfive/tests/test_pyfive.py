@@ -1,3 +1,5 @@
+""" Unit tests for pyfive. """
+import os
 
 import numpy as np
 from numpy.testing import assert_array_equal
@@ -5,10 +7,15 @@ from numpy.testing import assert_array_equal
 import pyfive
 import h5py
 
+DIRNAME = os.path.dirname(__file__)
+BASIC_HDF5_FILE = os.path.join(DIRNAME, 'basic_example.hdf5')
+BASIC_NETCDF4_FILE = os.path.join(DIRNAME, 'basic_example.nc')
+
+
 def test_read_basic_example():
 
     # reading with HDF5
-    hfile = h5py.File('basic_example.hdf5', 'r')
+    hfile = h5py.File(BASIC_HDF5_FILE, 'r')
     assert hfile['/example'].attrs['foo'] == 99.5
     assert hfile['/example'].attrs['bar'] == 42
     np.testing.assert_array_equal(
@@ -19,7 +26,7 @@ def test_read_basic_example():
     hfile.close()
 
     # reading with pyfive
-    hfile = pyfive.HDF5File('basic_example.hdf5')
+    hfile = pyfive.HDF5File(BASIC_HDF5_FILE)
     assert 'example' in hfile.datasets
 
     dset = hfile.datasets['example']
