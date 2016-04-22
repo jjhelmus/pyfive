@@ -141,10 +141,15 @@ class SymbolTable(object):
             entry['link_name'] = link_name
         return
 
-    def links_and_offsets(self):
-        """ Return a dictionary of link name: offsets. """
+    def find_datasets(self):
+        """ Return a dictionary of datasets and offsets. """
         return {e['link_name']: e['object_header_address'] for e in
-                self.symbol_table['entries']}
+                self.symbol_table['entries'] if e['cache_type'] == 0}
+
+    def find_groups(self):
+        """ Return a dictionary of group name: offsets. """
+        return {e['link_name']: e['object_header_address'] for e in
+                self.symbol_table['entries'] if e['cache_type'] == 1}
 
 
 

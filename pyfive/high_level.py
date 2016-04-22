@@ -37,20 +37,83 @@ class HDF5File:
 
         self.symboltables = []
         self._dataset_offsets = {}
-        for symbol_table_addreess in self.btree. symbol_table_addresses():
+        self._group_offsets = {}
+        for symbol_table_addreess in self.btree.symbol_table_addresses():
             self._fh.seek(symbol_table_addreess)
             table = low_level.SymbolTable(self._fh)
             table.assign_name(self.heap)
 
             self.symboltables.append(table)
-            self._dataset_offsets.update(table.links_and_offsets())
+            self._dataset_offsets.update(table.find_datasets())
+            self._group_offsets.update(table.find_groups())
 
         self.datasets = {k: Dataset(k, v, self._fh) for k, v in
                          self._dataset_offsets.items()}
+        self.groups = {k: Group(k, v, self._fh) for k, v in
+                       self._group_offsets.items()}
+
+
+    def get_attributes(self):
+        return self.root_group.dataobjects.get_attributes()
 
     def close(self):
         """ Close the file. """
         self._fh.close()
+
+
+class Group(object):
+
+    def __init__(self, name, offset, fh):
+
+        # read the group data objects
+        fh.seek(offset)
+        dataobjects = low_level.DataObjects(fh)
+
+        # extract the B-tree and local heap address from the symbol table
+        # message
+        msgs = dataobjects.find_msg_type(17)
+        assert len(msgs) == 1
+        assert msgs[0]['size'] == 16
+        symbol_table_message = low_level._unpack_struct_from(
+            low_level.SYMBOL_TABLE_MESSAGE, dataobjects.msg_data,
+            msgs[0]['offset_to_message'])
+
+        self.address_of_btree = symbol_table_message['btree_address']
+        self.address_of_heap = symbol_table_message['heap_address']
+
+        self.name = name
+        self.offset = offset
+        self._dataobjects = dataobjects
+        self._fh = fh
+
+        self._fh.seek(self.address_of_btree)
+        self.btree = low_level.BTree(self._fh)
+
+        self._fh.seek(self.address_of_heap)
+        self.heap = low_level.Heap(self._fh)
+
+        self.symboltables = []
+        self._dataset_offsets = {}
+        self._group_offsets = {}
+        for symbol_table_addreess in self.btree.symbol_table_addresses():
+            self._fh.seek(symbol_table_addreess)
+            table = low_level.SymbolTable(self._fh)
+            table.assign_name(self.heap)
+
+            self.symboltables.append(table)
+            self._dataset_offsets.update(table.find_datasets())
+            self._group_offsets.update(table.find_groups())
+
+        self.datasets = {k: Dataset(k, v, self._fh) for k, v in
+                         self._dataset_offsets.items()}
+        self.groups = {k: Group(k, v, self._fh) for k, v in
+                       self._group_offsets.items()}
+
+
+    def get_attributes(self):
+        """ Return a dictionary of all attributes. """
+        return self._dataobjects.get_attributes()
+
 
 
 class Dataset(object):
