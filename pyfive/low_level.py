@@ -39,24 +39,26 @@ class RootGroup(object):
         # unpack the scratch area B-Tree and Heap addressed
         scratch = entry['scratch']
         address_of_btree, address_of_heap = struct.unpack('<QQ', scratch)
-        entry['address_of_btree'] = address_of_btree
-        entry['address_of_heap'] = address_of_heap
-
-        # verify that the DataObject messages agree with the cache
-        root_data_objects = DataObjects(fh)
-        assert root_data_objects.msgs[0]['type'] == 17
-        assert root_data_objects.msgs[0]['size'] == 16
-
-        symbol_table_message = _unpack_struct_from(
-            SYMBOL_TABLE_MESSAGE, root_data_objects.msg_data,
-            root_data_objects.msgs[0]['offset_to_message'])
-        assert symbol_table_message['btree_address'] == address_of_btree
-        assert symbol_table_message['heap_address'] == address_of_heap
-        entry['symbol_table_message'] = symbol_table_message
-
-        self.address_of_btree = entry['address_of_btree']
-        self.address_of_heap = entry['address_of_heap']
+        self.address_of_btree = address_of_btree
+        self.address_of_heap = address_of_heap
         self._contents = entry
+
+        self.dataobjects = DataObjects(fh)
+        self._verify_cache()
+
+    def _verify_cache(self):
+        # verify that the DataObject messages agree with the cache
+        msgs = self.dataobjects.find_msg_type(SYMBOL_TABLE_MSG_TYPE)
+        assert len(msgs) == 1
+
+        assert msgs[0]['type'] == SYMBOL_TABLE_MSG_TYPE
+        assert msgs[0]['size'] == 16
+        symbol_table_message = _unpack_struct_from(
+            SYMBOL_TABLE_MESSAGE, self.dataobjects.msg_data,
+            msgs[0]['offset_to_message'])
+        assert symbol_table_message['btree_address'] == self.address_of_btree
+        assert symbol_table_message['heap_address'] == self.address_of_heap
+
 
 
 
@@ -123,6 +125,7 @@ class SymbolTable(object):
     """
 
     def __init__(self, fh):
+
         node = _unpack_struct_from_file(SYMBOL_TABLE_NODE, fh)
         assert node['signature'] == b'SNOD'
         node['entries'] = [
@@ -162,7 +165,7 @@ class DataObjects(object):
             info = _unpack_struct_from(
                 HEADER_MESSAGE_INFO, message_data, offset)
             info['offset_to_message'] = offset + 8
-            if info['type'] == 0x0010:  # object header continuation
+            if info['type'] == OBJECT_CONTINUATION_MSG_TYPE:
                 fh_offset, size = struct.unpack_from(
                     '<QQ', message_data, offset + 8)
                 fh.seek(fh_offset)
@@ -178,7 +181,7 @@ class DataObjects(object):
     def get_attributes(self):
         """ Return a dictionary of all attributes. """
         attrs = {}
-        attr_msgs = [m for m in self.msgs if m['type'] == 12]
+        attr_msgs = self.find_msg_type(ATTRIBUTE_MSG_TYPE)
         for msg in attr_msgs:
             offset = msg['offset_to_message']
             name, value = unpack_attribute(self.msg_data, offset)
@@ -186,17 +189,19 @@ class DataObjects(object):
         return attrs
 
     def get_data(self):
-        attr_msg = [m for m in self.msgs if m['type'] == 8][0]
-        start = attr_msg['offset_to_message']
-        size = attr_msg['size']
+        msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
+        start = msg['offset_to_message']
         version, layout_class, offset, size = struct.unpack_from(
             '<BBQQ', self.msg_data, start)
-        print(offset, size)
         self.fh.seek(offset)
         buf = self.fh.read(size)
         dtype='<i4'
         shape = (100, )
         return np.frombuffer(buf, dtype=dtype).reshape(shape)
+
+    def find_msg_type(self, msg_type):
+        """ Return a list of all messages of a given type. """
+        return [m for m in self.msgs if m['type'] == msg_type]
 
 
 def unpack_attribute(buf, offset=0):
@@ -379,3 +384,31 @@ SYMBOL_TABLE_MESSAGE = OrderedDict((
     ('btree_address', 'Q'),     # 8 bytes addressing
     ('heap_address', 'Q'),      # 8 byte addressing
 ))
+
+
+# Data Object Message types
+# Section IV.A.2.a - IV.A.2.x
+NIL_MSG_TYPE = 0x0000
+DATASPACE_MSG_TYPE = 0x0001
+LINK_INFO_MSG_TYPE = 0x0002
+DATATYPE_MSG_TYPE = 0x0003
+FILLVALUE_OLD_MSG_TYPE = 0x0004
+FILLVALUE_MSG_TYPE = 0x0005
+LINK_MSG_TYPE = 0x0006
+EXTERNAL_DATA_FILES_MSG_TYPE = 0x0007
+DATA_STORAGE_MSG_TYPE = 0x0008
+BOGUS_MSG_TYPE = 0x0009
+GROUP_INFO_MSG_TYPE = 0x000A
+DATA_STORAGE_FILTER_PIPELINE_MSG_TYPE = 0x000B
+ATTRIBUTE_MSG_TYPE = 0x000C
+OBJECT_COMMENT_MSG_TYPE = 0x000D
+OBJECT_MODIFICATION_TIME_OLD_MSG_TYPE = 0x000E
+SHARED_MESSAGE_TABLE_MSG_TYPE = 0x000F
+OBJECT_CONTINUATION_MSG_TYPE = 0x0010
+SYMBOL_TABLE_MSG_TYPE = 0x0011
+OBJECT_MODIFICATION_TIME_MSG_TYPE = 0x0012
+BTREE_K_VALUE_MSG_TYPE = 0x0013
+DRIVER_INFO_MSG_TYPE = 0x0014
+ATTRIBUTE_INFO_MSG_TYPE = 0x0015
+OBJECT_REFERENCE_COUNT_MSG_TYPE = 0x0016
+FILE_SPACE_INFO_MSG_TYPE = 0x0018
