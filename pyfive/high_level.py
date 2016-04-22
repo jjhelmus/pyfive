@@ -27,12 +27,29 @@ class HDF5File:
 
         self._fh = open(filename, 'rb')
         self.superblock = low_level.SuperBlock(self._fh)
-        self.root_group = low_level.RootGroup(self._fh)
 
-        self._fh.seek(self.root_group.address_of_btree)
+        # read in the symbol table
+        entry = low_level._unpack_struct_from_file(
+            low_level.SYMBOL_TABLE_ENTRY, self._fh)
+        assert entry['cache_type'] == 1
+        self.dataobjects = low_level.DataObjects(self._fh)
+
+        msgs = self.dataobjects.find_msg_type(low_level.SYMBOL_TABLE_MSG_TYPE)
+        assert len(msgs) == 1
+        assert msgs[0]['type'] == low_level.SYMBOL_TABLE_MSG_TYPE
+        assert msgs[0]['size'] == 16
+        symbol_table_message = low_level._unpack_struct_from(
+            low_level.SYMBOL_TABLE_MESSAGE, self.dataobjects.msg_data,
+            msgs[0]['offset_to_message'])
+        self.address_of_btree = symbol_table_message['btree_address']
+        self.address_of_heap = symbol_table_message['heap_address']
+
+        #self.root_group = low_level.RootGroup(self._fh)
+
+        self._fh.seek(self.address_of_btree)
         self.btree = low_level.BTree(self._fh)
 
-        self._fh.seek(self.root_group.address_of_heap)
+        self._fh.seek(self.address_of_heap)
         self.heap = low_level.Heap(self._fh)
 
         self.symboltables = []
@@ -54,7 +71,7 @@ class HDF5File:
 
 
     def get_attributes(self):
-        return self.root_group.dataobjects.get_attributes()
+        return self.dataobjects.get_attributes()
 
     def close(self):
         """ Close the file. """
