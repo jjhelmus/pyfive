@@ -24,6 +24,43 @@ class SuperBlock(object):
         self._contents = superblock
 
 
+
+class RootGroup(object):
+    """
+    Class for representing the HDF5 Root Group.
+    """
+
+    def __init__(self, fh):
+        # Read in the root group symbol table entry from an open file.
+        # read in the symbol table entry
+        entry = _unpack_struct_from_file(SYMBOL_TABLE_ENTRY, fh)
+        assert entry['cache_type'] == 1
+
+        # unpack the scratch area B-Tree and Heap addressed
+        scratch = entry['scratch']
+        address_of_btree, address_of_heap = struct.unpack('<QQ', scratch)
+        entry['address_of_btree'] = address_of_btree
+        entry['address_of_heap'] = address_of_heap
+
+        # verify that the DataObject messages agree with the cache
+        root_data_objects = DataObjects(fh)
+        assert root_data_objects.messages[0]['type'] == 17
+        assert root_data_objects.messages[0]['size'] == 16
+
+        symbol_table_message = _unpack_struct_from(
+            SYMBOL_TABLE_MESSAGE, root_data_objects.message_data,
+            root_data_objects.messages[0]['offset_to_message'])
+        assert symbol_table_message['btree_address'] == address_of_btree
+        assert symbol_table_message['heap_address'] == address_of_heap
+        entry['symbol_table_message'] = symbol_table_message
+
+        self.address_of_btree = entry['address_of_btree']
+        self.address_of_heap = entry['address_of_heap']
+        self._contents = entry
+
+
+
+
 class BTree(object):
     """
     Class for working with HDF5 B-Trees.

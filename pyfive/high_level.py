@@ -27,12 +27,12 @@ class HDF5File:
 
         self._fh = open(filename, 'rb')
         self.superblock = low_level.SuperBlock(self._fh)
-        self.root_group = self._get_root_group(self._fh)
+        self.root_group = low_level.RootGroup(self._fh)
 
-        self._fh.seek(self.root_group['address_of_btree'])
+        self._fh.seek(self.root_group.address_of_btree)
         self.btree = low_level.BTree(self._fh)
 
-        self._fh.seek(self.root_group['address_of_heap'])
+        self._fh.seek(self.root_group.address_of_heap)
         self.heap = low_level.Heap(self._fh)
 
         self.symboltables = []
@@ -47,37 +47,6 @@ class HDF5File:
 
         self.datasets = {k: Dataset(k, v, self._fh) for k, v in
                          self._dataset_offsets.items()}
-
-        self._fh.seek(800)
-        self.dataobjects = low_level.DataObjects(self._fh)
-
-    def _get_root_group(self, fh):
-        """ Read in the root group symbol table entry from an open file. """
-
-        # read in the symbol table entry
-        entry = low_level._unpack_struct_from_file(
-            low_level.SYMBOL_TABLE_ENTRY, fh)
-        assert entry['cache_type'] == 1
-
-        # unpack the scratch area B-Tree and Heap addressed
-        scratch = entry['scratch']
-        address_of_btree, address_of_heap = struct.unpack('<QQ', scratch)
-        entry['address_of_btree'] = address_of_btree
-        entry['address_of_heap'] = address_of_heap
-
-        # verify that the DataObject messages agree with the cache
-        root_data_objects = low_level.DataObjects(fh)
-        assert root_data_objects.messages[0]['type'] == 17
-        assert root_data_objects.messages[0]['size'] == 16
-
-        symbol_table_message = low_level._unpack_struct_from(
-            low_level.SYMBOL_TABLE_MESSAGE, root_data_objects.message_data,
-            root_data_objects.messages[0]['offset_to_message'])
-        assert symbol_table_message['btree_address'] == address_of_btree
-        assert symbol_table_message['heap_address'] == address_of_heap
-        entry['symbol_table_message'] = symbol_table_message
-
-        return entry
 
     def close(self):
         """ Close the file. """
