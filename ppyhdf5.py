@@ -134,36 +134,41 @@ class BTree(object):
             all_address.extend(tree['addresses'])
         return all_address
 
+
 class Dataset(object):
     """
-    Class to store and access data from a Dataset.
+    Class providing access to attribute and data stored in a HDF5 Dataset.
+
+    Parameters
+    ----------
+
     """
 
     def __init__(self, name, offset, fh):
         """ initalize with fh position at the Data Object Header. """
         self.name = name
         fh.seek(offset)
-        self.dataobjects = DataObjects(fh)
+        dataobjects = DataObjects(fh)
+        self._msg_data = dataobjects.message_data
+        self._msgs = dataobjects.messages
         self.fh = fh
 
     def get_attributes(self):
         """ Return a dictionary of all attributes. """
         attrs = {}
-        attr_msgs = [m for m in self.dataobjects.messages if m['type'] == 12]
-        for attr_msg in attr_msgs:
-            start = attr_msg['offset_to_message']
-            size = attr_msg['size']
-            attr_bytes = self.dataobjects.message_data[start:start+size]
-            name, value = _unpack_attribute_from_bytes(attr_bytes)
+        attr_msgs = [m for m in self._msgs if m['type'] == 12]
+        for msg in attr_msgs:
+            offset = msg['offset_to_message']
+            name, value = _unpack_attribute(self._msg_data, offset)
             attrs[name] = value
         return attrs
 
     def get_data(self):
-        attr_msg = [m for m in self.dataobjects.messages if m['type'] == 8][0]
+        attr_msg = [m for m in self._msgs if m['type'] == 8][0]
         start = attr_msg['offset_to_message']
         size = attr_msg['size']
         version, layout_class, offset, size = struct.unpack_from(
-            '<BBQQ', self.dataobjects.message_data, start)
+            '<BBQQ', self._msg_data, start)
         print(offset, size)
         self.fh.seek(offset)
         buf = self.fh.read(size)
@@ -255,46 +260,49 @@ class DataObjects(object):
         self._header = header
 
 
-def _unpack_attribute_from_bytes(attr_bytes):
+def _unpack_attribute(buf, offset=0):
+    """ Return the attribute name and value. """
 
-    attr_dict = _unpack_struct_from(ATTRIBUTE_MESSAGE_HEADER, attr_bytes)
+    attr_dict = _unpack_struct_from(ATTRIBUTE_MESSAGE_HEADER, buf, offset)
+    assert attr_dict['version'] == 1
+    offset += ATTRIBUTE_MESSAGE_HEADER_SIZE
 
-    true_name_size = int(np.ceil(attr_dict['name_size'] / 8.) * 8)
-    true_datatype_size = int(np.ceil(attr_dict['datatype_size'] / 8.) * 8)
-    true_dataspace_size = int(np.ceil(attr_dict['dataspace_size'] / 8.) * 8)
+    # read in the attribute name
+    name_size = attr_dict['name_size']
+    name = buf[offset:offset+name_size].strip(b'\x00').decode('utf-8')
+    offset += _padded_size(name_size)
 
-    pos = 8
-    attr_dict['name_data'] = attr_bytes[pos:pos+true_name_size]
-    pos += true_name_size
+    # read in the datatype information
+    datatype = _unpack_struct_from(DATATYPE_MESSAGE, buf, offset)
+    dtype_version = datatype['class_and_version'] >> 4  # first 4 bits
+    dtype_class = datatype['class_and_version'] & 0x0F  # last 4 bits
+    offset += _padded_size(attr_dict['datatype_size'])
 
-    attr_dict['datatype_data'] = attr_bytes[pos:pos+true_datatype_size]
-    pos += true_datatype_size
+    # read in the dataspace information
+    dataspace_size = attr_dict['dataspace_size']
+    attr_dict['dataspace'] = buf[offset:offset+dataspace_size]
+    offset += _padded_size(dataspace_size)
 
-    attr_dict['dataspace'] = attr_bytes[pos:pos+true_dataspace_size]
-    pos += true_dataspace_size
-
-    datatype = _unpack_struct_from(DATATYPE_MESSAGE,
-                                   attr_dict['datatype_data'])
-    datatype['version'] = datatype['class_and_version'] >> 4      # first 4 bits
-    datatype['class'] = datatype['class_and_version'] & 0x0F  # last 4 bits
-    attr_dict['datatype'] = datatype
-
-    if datatype['class'] == 1:  # floating point, assume IEEE.
+    if dtype_class == 1:  # floating point, assume IEEE.
         # XXX check properties field to check that IEEEE
         if datatype['size'] == 8:
-            attr_dict['value'] = struct.unpack_from('<d', attr_bytes, pos)[0]
+            value = struct.unpack_from('<d', buf, offset)[0]
         else:
             raise NotImplementedError
-    elif datatype['class'] == 0:  # fixed-point
+    elif dtype_class == 0:  # fixed-point
         # XXX assuming signed, need to check Fix-point field properties
         if datatype['size'] == 8:
-            attr_dict['value'] = struct.unpack_from('<q', attr_bytes, pos)[0]
+            value = struct.unpack_from('<q', buf, offset)[0]
         else:
             raise NotImplementedError
     else:
         raise NotImplementedError
-    return (attr_dict['name_data'].decode('utf-8').strip('\x00'),
-            attr_dict['value'])
+    return name, value
+
+
+def _padded_size(size, padding_multipe=8):
+    """ Return the size of a field padded to be a multiple a give value. """
+    return int(np.ceil(size / padding_multipe) * padding_multipe)
 
 
 # IV.A.2.d The Datatype Message
@@ -307,13 +315,13 @@ DATATYPE_MESSAGE = OrderedDict((
     ('size', 'I'),
 ))
 
-def _calc_structure_size(structure):
+def _structure_size(structure):
     fmt = '<' + ''.join(structure.values())
     return struct.calcsize(fmt)
 
 
 def _unpack_struct_from_file(structure, fh):
-    size = _calc_structure_size(structure)
+    size = _structure_size(structure)
     buf = fh.read(size)
     return _unpack_struct_from(structure, buf)
 
@@ -394,6 +402,7 @@ ATTRIBUTE_MESSAGE_HEADER = OrderedDict((
     ('datatype_size', 'H'),
     ('dataspace_size', 'H'),
 ))
+ATTRIBUTE_MESSAGE_HEADER_SIZE = _structure_size(ATTRIBUTE_MESSAGE_HEADER)
 
 
 # III.D Disk Format: Level 1D - Local Heaps
