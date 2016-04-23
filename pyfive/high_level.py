@@ -7,6 +7,9 @@ import numpy as np
 
 from . import low_level
 
+from .low_level import SuperBlock, BTree, Heap, SymbolTable, DataObjects
+
+
 # Plans
 # Classes
 # -------
@@ -18,42 +21,54 @@ from . import low_level
 
 
 class Group(object):
+    """
+
+    Attributes
+    ----------
+    * Public
+    name
+    datasets
+    groups
+
+    * Private?
+    btree
+    heap
+    symboltables
+    _dataobjects
+    _fh
+
+    * Remove?
+    offset
+
+    """
 
     def __init__(self, name, offset, fh):
 
         # read the group data objects
         fh.seek(offset)
-        dataobjects = low_level.DataObjects(fh)
+        dataobjects = DataObjects(fh)
 
-        # extract the B-tree and local heap address from the symbol table
+        # extract the B-tree and local heap address from the Symbol table
         # message
-        msgs = dataobjects.find_msg_type(low_level.SYMBOL_TABLE_MSG_TYPE)
-        assert len(msgs) == 1
-        assert msgs[0]['size'] == 16
-        symbol_table_message = low_level._unpack_struct_from(
-            low_level.SYMBOL_TABLE_MESSAGE, dataobjects.msg_data,
-            msgs[0]['offset_to_message'])
-
-        self.address_of_btree = symbol_table_message['btree_address']
-        self.address_of_heap = symbol_table_message['heap_address']
+        btree_address, heap_address = dataobjects.get_btree_heap_addresses()
 
         self.name = name
         self.offset = offset
         self._dataobjects = dataobjects
         self._fh = fh
 
-        self._fh.seek(self.address_of_btree)
-        self.btree = low_level.BTree(self._fh)
+        self._fh.seek(btree_address)
+        self.btree = BTree(self._fh)
 
-        self._fh.seek(self.address_of_heap)
-        self.heap = low_level.Heap(self._fh)
+        self._fh.seek(heap_address)
+        self.heap = Heap(self._fh)
 
         self.symboltables = []
         self._dataset_offsets = {}
         self._group_offsets = {}
         for symbol_table_addreess in self.btree.symbol_table_addresses():
             self._fh.seek(symbol_table_addreess)
-            table = low_level.SymbolTable(self._fh)
+            table = SymbolTable(self._fh)
             table.assign_name(self.heap)
 
             self.symboltables.append(table)
@@ -81,7 +96,7 @@ class HDF5File(Group):
         """ initalize. """
 
         fh = open(filename, 'rb')
-        self.superblock = low_level.SuperBlock(fh)
+        self.superblock = SuperBlock(fh)
 
         # read in the symbol table
         entry = low_level._unpack_struct_from_file(
@@ -110,7 +125,7 @@ class Dataset(object):
         """ initalize with fh position at the Data Object Header. """
         self.name = name
         fh.seek(offset)
-        self._dataobjects = low_level.DataObjects(fh)
+        self._dataobjects = DataObjects(fh)
 
     def get_attributes(self):
         """ Return a dictionary of all attributes. """

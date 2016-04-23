@@ -189,6 +189,21 @@ class DataObjects(object):
         """ Return a list of all messages of a given type. """
         return [m for m in self.msgs if m['type'] == msg_type]
 
+    def get_btree_heap_addresses(self):
+        """ Return the address of the B-Tree and Heap. """
+        # extract the B-tree and local heap address from the Symbol table
+        # message
+        msgs = self.find_msg_type(SYMBOL_TABLE_MSG_TYPE)
+        assert len(msgs) == 1
+        assert msgs[0]['size'] == 16
+        symbol_table_message = _unpack_struct_from(
+            SYMBOL_TABLE_MESSAGE, self.msg_data,
+            msgs[0]['offset_to_message'])
+
+        address_of_btree = symbol_table_message['btree_address']
+        address_of_heap = symbol_table_message['heap_address']
+        return address_of_btree, address_of_heap
+
 
 def unpack_attribute(buf, offset=0):
     """ Return the attribute name and value. """
