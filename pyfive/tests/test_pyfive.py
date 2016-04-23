@@ -31,11 +31,10 @@ def test_read_basic_example():
 
     dset = hfile.datasets['example']
 
-    attrs = dset.get_attributes()
-    assert 'bar' in attrs
-    assert 'foo' in attrs
-    assert attrs['bar'] == 42
-    assert attrs['foo'] == 99.5
+    assert 'bar' in dset.attrs
+    assert 'foo' in dset.attrs
+    assert dset.attrs['bar'] == 42
+    assert dset.attrs['foo'] == 99.5
 
     data = dset.get_data()
     assert data.dtype == np.dtype('int32')
@@ -43,5 +42,3 @@ def test_read_basic_example():
     assert_array_equal(data, np.arange(100, dtype='int32'))
 
     hfile.close()
-
-

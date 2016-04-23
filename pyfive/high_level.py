@@ -56,11 +56,13 @@ class Group(object):
                          self._dataset_offsets.items()}
         self.groups = {k: Group(k, v, self._fh) for k, v in
                        self._group_offsets.items()}
+        self._attrs = None
 
-
-    def get_attributes(self):
-        """ Return a dictionary of all attributes. """
-        return self._dataobjects.get_attributes()
+    @property
+    def attrs(self):
+        if self._attrs is None:
+            self._attrs = self._dataobjects.get_attributes()
+        return self._attrs
 
 
 class HDF5File(Group):
@@ -96,10 +98,13 @@ class Dataset(object):
         self.name = name
         fh.seek(offset)
         self._dataobjects = DataObjects(fh)
+        self._attrs = None
 
-    def get_attributes(self):
-        """ Return a dictionary of all attributes. """
-        return self._dataobjects.get_attributes()
+    @property
+    def attrs(self):
+        if self._attrs is None:
+            self._attrs = self._dataobjects.get_attributes()
+        return self._attrs
 
     def get_data(self):
         return self._dataobjects.get_data()

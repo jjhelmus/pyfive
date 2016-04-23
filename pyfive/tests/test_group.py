@@ -12,20 +12,18 @@ def test_file_with_group():
     hfile = pyfive.HDF5File(filename)
 
     # root group attribute
-    attrs = hfile.get_attributes()
-    assert 'alice' in attrs
-    assert attrs['alice'] == 12
+    assert 'alice' in hfile.attrs
+    assert hfile.attrs['alice'] == 12
 
     # example dataset
     assert 'example' in hfile.datasets
     assert 'example' not in hfile.groups
     dset = hfile.datasets['example']
 
-    attrs = dset.get_attributes()
-    assert 'bar' in attrs
-    assert 'foo' in attrs
-    assert attrs['bar'] == 42
-    assert attrs['foo'] == 99.5
+    assert 'bar' in dset.attrs
+    assert 'foo' in dset.attrs
+    assert dset.attrs['bar'] == 42
+    assert dset.attrs['foo'] == 99.5
 
     data = dset.get_data()
     assert data.dtype == np.dtype('int32')
@@ -36,15 +34,13 @@ def test_file_with_group():
     assert 'subgroup_one' not in hfile.datasets
     assert 'subgroup_one' in hfile.groups
     grp = hfile.groups['subgroup_one']
-    attrs = grp.get_attributes()
-    assert 'bob' in attrs
-    assert attrs['bob'] == 13
+    assert 'bob' in grp.attrs
+    assert grp.attrs['bob'] == 13
 
     # subgroup_one/grp_one_array
     dset = grp.datasets['grp_one_array']
-    attrs = dset.get_attributes()
-    assert 'carol' in attrs
-    assert attrs['carol'] == 14
+    assert 'carol' in dset.attrs
+    assert dset.attrs['carol'] == 14
 
     data = dset.get_data()
     assert data.dtype == np.dtype('float32')
