@@ -25,7 +25,7 @@ def test_file_with_group():
     assert dset.attrs['bar'] == 42
     assert dset.attrs['foo'] == 99.5
 
-    data = dset.get_data()
+    data = dset.data
     assert data.dtype == np.dtype('int32')
     assert data.shape == (100, )
     assert_array_equal(data, np.arange(100, dtype='int32'))
@@ -42,7 +42,7 @@ def test_file_with_group():
     assert 'carol' in dset.attrs
     assert dset.attrs['carol'] == 14
 
-    data = dset.get_data()
+    data = dset.data
     assert data.dtype == np.dtype('float32')
     assert data.shape == (10, )
     assert_array_equal(data, np.arange(10) + 55)

@@ -36,7 +36,7 @@ def test_read_basic_example():
     assert dset.attrs['bar'] == 42
     assert dset.attrs['foo'] == 99.5
 
-    data = dset.get_data()
+    data = dset.data
     assert data.dtype == np.dtype('int32')
     assert data.shape == (100, )
     assert_array_equal(data, np.arange(100, dtype='int32'))

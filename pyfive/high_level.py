@@ -106,5 +106,6 @@ class Dataset(object):
             self._attrs = self._dataobjects.get_attributes()
         return self._attrs
 
-    def get_data(self):
+    @property
+    def data(self):
         return self._dataobjects.get_data()
