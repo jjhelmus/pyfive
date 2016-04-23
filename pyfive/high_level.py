@@ -52,11 +52,23 @@ class Group(object):
             self._dataset_offsets.update(table.find_datasets())
             self._group_offsets.update(table.find_groups())
 
-        self.datasets = {k: Dataset(k, v, self._fh) for k, v in
-                         self._dataset_offsets.items()}
-        self.groups = {k: Group(k, v, self._fh) for k, v in
-                       self._group_offsets.items()}
+        self._datasets = None
+        self._groups = None
         self._attrs = None
+
+    @property
+    def datasets(self):
+        if self._datasets is None:
+            self._datasets = {k: Dataset(k, v, self._fh) for k, v in
+                              self._dataset_offsets.items()}
+        return self._datasets
+
+    @property
+    def groups(self):
+        if self._groups is None:
+            self._groups = {k: Group(k, v, self._fh) for k, v in
+                            self._group_offsets.items()}
+        return self._groups
 
     @property
     def attrs(self):
