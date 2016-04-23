@@ -85,14 +85,21 @@ class SymbolTable(object):
     Class to store Symbol Tables
     """
 
-    def __init__(self, fh):
+    def __init__(self, fh, root=False):
 
-        node = _unpack_struct_from_file(SYMBOL_TABLE_NODE, fh)
-        assert node['signature'] == b'SNOD'
+        if root:
+            # The root symbol table has no Symbol table node header
+            # and contains only a single entry
+            node = OrderedDict([('symbols', 1)])
+        else:
+            node = _unpack_struct_from_file(SYMBOL_TABLE_NODE, fh)
+            assert node['signature'] == b'SNOD'
         node['entries'] = [
             _unpack_struct_from_file(SYMBOL_TABLE_ENTRY, fh) for i in
             range(node['symbols'])]
         self.symbol_table = node
+        if root:
+            self.group_offset = node['entries'][0]['object_header_address']
 
     def assign_name(self, heap):
         """ Assign link names to all entries in the symbol table. """

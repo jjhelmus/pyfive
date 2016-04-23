@@ -1,23 +1,6 @@
 """ High-level classes for reading HDF5 files.  """
 
-import struct
-from collections import OrderedDict
-
-import numpy as np
-
-from . import low_level
-
 from .low_level import SuperBlock, BTree, Heap, SymbolTable, DataObjects
-
-
-# Plans
-# Classes
-# -------
-# Data Objects - read and store Data object header and Messages
-# Object header?
-
-
-# https://www.hdfgroup.org/HDF5/doc/H5.format.html
 
 
 class Group(object):
@@ -37,9 +20,6 @@ class Group(object):
     _dataobjects
     _fh
 
-    * Remove?
-    offset
-
     """
 
     def __init__(self, name, offset, fh):
@@ -48,12 +28,9 @@ class Group(object):
         fh.seek(offset)
         dataobjects = DataObjects(fh)
 
-        # extract the B-tree and local heap address from the Symbol table
-        # message
         btree_address, heap_address = dataobjects.get_btree_heap_addresses()
 
         self.name = name
-        self.offset = offset
         self._dataobjects = dataobjects
         self._fh = fh
 
@@ -97,15 +74,8 @@ class HDF5File(Group):
 
         fh = open(filename, 'rb')
         self.superblock = SuperBlock(fh)
-
-        # read in the symbol table
-        entry = low_level._unpack_struct_from_file(
-            low_level.SYMBOL_TABLE_ENTRY, fh)
-        assert entry['cache_type'] == 1
-        self._entry = entry
-        offset = entry['object_header_address']
-        name = None
-        super(HDF5File, self).__init__(name, offset, fh)
+        sym_table = SymbolTable(fh, root=True)
+        super(HDF5File, self).__init__(None, sym_table.group_offset, fh)
 
     def close(self):
         """ Close the file. """
