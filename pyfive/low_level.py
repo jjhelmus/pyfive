@@ -8,13 +8,15 @@ import numpy as np
 
 class SuperBlock(object):
     """
-    Class for represeting the HDF5 Superblock
+    HDF5 Superblock instance.
     """
 
     def __init__(self, fh):
+        """ initalize. """
+
         superblock = _unpack_struct_from_file(SUPERBLOCK, fh)
 
-        # check
+        # verify contents
         assert superblock['format_signature'] == FORMAT_SIGNATURE
         assert superblock['superblock_version'] == 0
         assert superblock['offset_size'] == 8
@@ -26,18 +28,18 @@ class SuperBlock(object):
 
 class BTree(object):
     """
-    Class for working with HDF5 B-Trees.
+    HDF5 B-Tree instance.
     """
 
     def __init__(self, fh):
         """ initalize. """
-        self.btree = []
+        self.nodes = []
         node = _unpack_struct_from_file(B_LINK_NODE_V1, fh)
         assert node['signature'] == b'TREE'
 
         keys = []
         addresses = []
-        for i in range(node['entries_used']):
+        for _ in range(node['entries_used']):
             key = struct.unpack('<Q', fh.read(8))[0]
             address = struct.unpack('<Q', fh.read(8))[0]
             keys.append(key)
@@ -47,45 +49,46 @@ class BTree(object):
         node['keys'] = keys
         node['addresses'] = addresses
 
-
-        self.btree.append(node)
+        self.nodes.append(node)
 
     def symbol_table_addresses(self):
         """ Return a list of all symbol table address. """
         all_address = []
-        for tree in self.btree:
-            all_address.extend(tree['addresses'])
+        for node in self.nodes:
+            all_address.extend(node['addresses'])
         return all_address
 
 
 class Heap(object):
     """
-    Class to store the heap.
+    HDF5 local heap instance.
     """
 
     def __init__(self, fh):
         """ initalize. """
-        # HEAP : starts at 680
+
         local_heap = _unpack_struct_from_file(LOCAL_HEAP, fh)
         assert local_heap['signature'] == b'HEAP'
         assert local_heap['version'] == 0
         fh.seek(local_heap['address_of_data_segment'])
         heap_data = fh.read(local_heap['data_segment_size'])
         local_heap['heap_data'] = heap_data
-        self.local_heap = local_heap
+        self._contents = local_heap
+        self.data = heap_data
 
     def get_object_name(self, offset):
         """ Return the name of the object indicated by the given offset. """
-        end = self.local_heap['heap_data'].index(b'\x00', offset)
-        return self.local_heap['heap_data'][offset:end]
+        end = self.data.index(b'\x00', offset)
+        return self.data[offset:end]
 
 
 class SymbolTable(object):
     """
-    Class to store Symbol Tables
+    HDF5 Symbol Table instance.
     """
 
     def __init__(self, fh, root=False):
+        """ initialize, root=True for the root group, False otherwise. """
 
         if root:
             # The root symbol table has no Symbol table node header
@@ -94,16 +97,16 @@ class SymbolTable(object):
         else:
             node = _unpack_struct_from_file(SYMBOL_TABLE_NODE, fh)
             assert node['signature'] == b'SNOD'
-        node['entries'] = [
-            _unpack_struct_from_file(SYMBOL_TABLE_ENTRY, fh) for i in
-            range(node['symbols'])]
-        self.symbol_table = node
+        entries = [_unpack_struct_from_file(SYMBOL_TABLE_ENTRY, fh) for i in
+                   range(node['symbols'])]
         if root:
-            self.group_offset = node['entries'][0]['object_header_address']
+            self.group_offset = entries[0]['object_header_address']
+        self.entries = entries
+        self._contents = node
 
     def assign_name(self, heap):
         """ Assign link names to all entries in the symbol table. """
-        for entry in self.symbol_table['entries']:
+        for entry in self.entries:
             offset = entry['link_name_offset']
             link_name = heap.get_object_name(offset).decode('utf-8')
             entry['link_name'] = link_name
@@ -112,29 +115,28 @@ class SymbolTable(object):
     def find_datasets(self):
         """ Return a dictionary of datasets and offsets. """
         return {e['link_name']: e['object_header_address'] for e in
-                self.symbol_table['entries'] if e['cache_type'] == 0}
+                self.entries if e['cache_type'] == 0}
 
     def find_groups(self):
         """ Return a dictionary of group name: offsets. """
         return {e['link_name']: e['object_header_address'] for e in
-                self.symbol_table['entries'] if e['cache_type'] == 1}
-
+                self.entries if e['cache_type'] == 1}
 
 
 class DataObjects(object):
     """
-    Class for storing a collection of data objects.
+    HDF5 DataObjects instance.
     """
 
     def __init__(self, fh):
-        """ Initalize from open file or file like object. """
+        """ initalize. """
         header = _unpack_struct_from_file(OBJECT_HEADER_V1, fh)
         assert header['version'] == 1
         message_data = fh.read(header['object_header_size'])
 
         offset = 0
         messages = []
-        for i in range(header['total_header_messages']):
+        for _ in range(header['total_header_messages']):
             info = _unpack_struct_from(
                 HEADER_MESSAGE_INFO, message_data, offset)
             info['offset_to_message'] = offset + 8
@@ -162,17 +164,17 @@ class DataObjects(object):
         return attrs
 
     def get_data(self):
+        """ Return the data pointed to in the DataObject. """
 
         # shape from dataspace message
         msg = self.find_msg_type(DATASPACE_MSG_TYPE)[0]
         msg_offset = msg['offset_to_message']
-        t = struct.unpack_from('<BBBB I QQ', self.msg_data, msg_offset)
-        version, ndims, flags, r0, r1, dim1_size, dim1_max = t
+        version, ndims, flags, reserved0, reserved1, dim1_size, dim1_max = (
+            struct.unpack_from('<BBBB I QQ', self.msg_data, msg_offset))
         assert version == 1
         assert ndims == 1
         assert flags == 1
         shape = (dim1_size, )
-
 
         # dtype from datatype message
         msg = self.find_msg_type(DATATYPE_MSG_TYPE)[0]
@@ -189,7 +191,6 @@ class DataObjects(object):
 
         self.fh.seek(data_offset)
         buf = self.fh.read(size)
-
         return np.frombuffer(buf, dtype=dtype).reshape(shape)
 
     def find_msg_type(self, msg_type):
@@ -198,8 +199,7 @@ class DataObjects(object):
 
     def get_btree_heap_addresses(self):
         """ Return the address of the B-Tree and Heap. """
-        # extract the B-tree and local heap address from the Symbol table
-        # message
+        # extract the B-tree and heap address from the Symbol table message
         msgs = self.find_msg_type(SYMBOL_TABLE_MSG_TYPE)
         assert len(msgs) == 1
         assert msgs[0]['size'] == 16
@@ -245,7 +245,7 @@ def dtype_from_datatype_msg(dtype_msg):
     dtype_class = dtype_msg['class_and_version'] & 0x0F  # last 4 bits
 
     if dtype_class == 1:  # floating point, assume IEEE.
-        # XXX check properties field to check that IEEEE
+        # TODO check properties field to check that IEEEE
         if dtype_msg['size'] == 8:
             return '<f8'
         if dtype_msg['size'] == 4:
@@ -253,7 +253,7 @@ def dtype_from_datatype_msg(dtype_msg):
         else:
             raise NotImplementedError
     elif dtype_class == 0:  # fixed-point
-        # XXX assuming signed, need to check Fix-point field properties
+        # TODO assuming signed, need to check Fix-point field properties
         if dtype_msg['size'] == 8:
             return '<i8'
         elif dtype_msg['size'] == 4:
@@ -269,28 +269,21 @@ def _padded_size(size, padding_multipe=8):
     return int(np.ceil(size / padding_multipe) * padding_multipe)
 
 
-# IV.A.2.d The Datatype Message
-
-DATATYPE_MESSAGE = OrderedDict((
-    ('class_and_version', 'B'),
-    ('class_bit_field_0', 'B'),
-    ('class_bit_field_1', 'B'),
-    ('class_bit_field_2', 'B'),
-    ('size', 'I'),
-))
-
 def _structure_size(structure):
+    """ Return the size of a structure in bytes. """
     fmt = '<' + ''.join(structure.values())
     return struct.calcsize(fmt)
 
 
 def _unpack_struct_from_file(structure, fh):
+    """ Unpack a structure into an OrderedDict from an open file. """
     size = _structure_size(structure)
     buf = fh.read(size)
     return _unpack_struct_from(structure, buf)
 
 
 def _unpack_struct_from(structure, buf, offset=0):
+    """ Unpack a structure into an OrderedDict from a buffer of bytes. """
     fmt = '<' + ''.join(structure.values())
     values = struct.unpack_from(fmt, buf, offset=offset)
     return OrderedDict(zip(structure.keys(), values))
@@ -342,7 +335,6 @@ B_LINK_NODE_V1 = OrderedDict((
     ('right_sibling', 'Q'),    # 8 byte addressing
 ))
 
-
 SYMBOL_TABLE_NODE = OrderedDict((
     ('signature', '4s'),
     ('version', 'B'),
@@ -368,7 +360,6 @@ ATTRIBUTE_MESSAGE_HEADER = OrderedDict((
 ))
 ATTRIBUTE_MESSAGE_HEADER_SIZE = _structure_size(ATTRIBUTE_MESSAGE_HEADER)
 
-
 # III.D Disk Format: Level 1D - Local Heaps
 LOCAL_HEAP = OrderedDict((
     ('signature', '4s'),
@@ -390,6 +381,15 @@ OBJECT_HEADER_V1 = OrderedDict((
     ('padding', 'I'),
 ))
 
+# IV.A.2.d The Datatype Message
+
+DATATYPE_MESSAGE = OrderedDict((
+    ('class_and_version', 'B'),
+    ('class_bit_field_0', 'B'),
+    ('class_bit_field_1', 'B'),
+    ('class_bit_field_2', 'B'),
+    ('size', 'I'),
+))
 
 #
 HEADER_MESSAGE_INFO = OrderedDict((
