@@ -179,9 +179,7 @@ class DataObjects(object):
         # dtype from datatype message
         msg = self.find_msg_type(DATATYPE_MSG_TYPE)[0]
         msg_offset = msg['offset_to_message']
-        dtype_msg = _unpack_struct_from(
-            DATATYPE_MESSAGE, self.msg_data, msg_offset)
-        dtype = dtype_from_datatype_msg(dtype_msg)
+        dtype = determine_dtype(self.msg_data, msg_offset)
 
         # offset from data storage message
         msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
@@ -225,7 +223,7 @@ def unpack_attribute(buf, offset=0):
     offset += _padded_size(name_size)
 
     # read in the datatype information
-    dtype_msg = _unpack_struct_from(DATATYPE_MESSAGE, buf, offset)
+    dtype = determine_dtype(buf, offset)
     offset += _padded_size(attr_dict['datatype_size'])
 
     # read in the dataspace information
@@ -233,35 +231,86 @@ def unpack_attribute(buf, offset=0):
     attr_dict['dataspace'] = buf[offset:offset+dataspace_size]
     offset += _padded_size(dataspace_size)
 
-    # read the value of the data
-    dtype = dtype_from_datatype_msg(dtype_msg)
     value = np.frombuffer(buf, dtype=dtype, count=1, offset=offset)[0]
     return name, value
 
 
-def dtype_from_datatype_msg(dtype_msg):
-    """ Return the numpy dtype for a given datatype message. """
-    dtype_version = dtype_msg['class_and_version'] >> 4  # first 4 bits
-    dtype_class = dtype_msg['class_and_version'] & 0x0F  # last 4 bits
+def determine_dtype(buf, offset):
+    """
+    Return the numpy dtype from a buffer pointing to a Datatype message.
+    """
+    datatype_msg = _unpack_struct_from(DATATYPE_MESSAGE, buf, offset)
+    datatype_version = datatype_msg['class_and_version'] >> 4  # first 4 bits
+    datatype_class = datatype_msg['class_and_version'] & 0x0F  # last 4 bits
 
-    if dtype_class == 1:  # floating point, assume IEEE.
-        # TODO check properties field to check that IEEEE
-        if dtype_msg['size'] == 8:
-            return '<f8'
-        if dtype_msg['size'] == 4:
-            return '<f4'
+    if datatype_class == DATATYPE_FIXED_POINT:
+        # fixed-point types are assumed to follow IEEE standard format
+        length_in_bytes = datatype_msg['size']
+        if length_in_bytes not in [1, 2, 4, 8]:
+            raise NotImplementedError("Unsupported datatype size")
+
+        signed = datatype_msg['class_bit_field_0'] & 0x08
+        if signed > 0:
+            dtype_char = 'i'
         else:
-            raise NotImplementedError
-    elif dtype_class == 0:  # fixed-point
-        # TODO assuming signed, need to check Fix-point field properties
-        if dtype_msg['size'] == 8:
-            return '<i8'
-        elif dtype_msg['size'] == 4:
-            return '<i4'
+            dtype_char = 'u'
+
+        byte_order = datatype_msg['class_bit_field_0'] & 0x01
+        if byte_order == 0:
+            byte_order_char = '<'  # little-endian
         else:
-            raise NotImplementedError
+            byte_order_char = '>'  # big-endian
+
+        return byte_order_char + dtype_char + str(length_in_bytes)
+
+    elif datatype_class == DATATYPE_FLOATING_POINT:
+        # Floating point types are assumed to follow IEEE standard formats
+        length_in_bytes = datatype_msg['size']
+        if length_in_bytes not in [1, 2, 4, 8]:
+            raise NotImplementedError("Unsupported datatype size")
+
+        dtype_char = 'f'
+
+        byte_order = datatype_msg['class_bit_field_0'] & 0x01
+        if byte_order == 0:
+            byte_order_char = '<'  # little-endian
+        else:
+            byte_order_char = '>'  # big-endian
+
+        return byte_order_char + dtype_char + str(length_in_bytes)
+
+    elif datatype_class == DATATYPE_TIME:
+        raise NotImplementedError("Time datatype class not supported.")
+
+    elif datatype_class == DATATYPE_STRING:
+        character_set = datatype_msg['class_bit_field_0'] & 0x0F
+        # When zero this indicates a ASCII character set but I cannot
+        # figure out how to generate a file of this type.
+        return 'S' + str(datatype_msg['size'])
+
+    elif datatype_class == DATATYPE_BITFIELD:
+        raise NotImplementedError("Bitfield datatype class not supported.")
+
+    elif datatype_class == DATATYPE_OPAQUE:
+        raise NotImplementedError("Opaque datatype class not supported.")
+
+    elif datatype_class == DATATYPE_COMPOUND:
+        raise NotImplementedError("Compound datatype class not supported.")
+
+    elif datatype_class == DATATYPE_REFERENCE:
+        raise NotImplementedError("Reference datatype class not supported.")
+
+    elif datatype_class == DATATYPE_ENUMERATED:
+        raise NotImplementedError("Enumerated datatype class not supported.")
+
+    elif datatype_class == DATATYPE_VARIABLE_LENGTH:
+        raise NotImplementedError(
+            "Non-string variable length datatypes not supported.")
+
+    elif datatype_class == DATATYPE_ARRAY:
+        raise NotImplementedError("Array datatype class not supported.")
     else:
-        raise NotImplementedError
+        raise ValueError('Invalid datatype class %i' % (datatype_class))
 
 
 def _padded_size(size, padding_multipe=8):
@@ -432,3 +481,16 @@ DRIVER_INFO_MSG_TYPE = 0x0014
 ATTRIBUTE_INFO_MSG_TYPE = 0x0015
 OBJECT_REFERENCE_COUNT_MSG_TYPE = 0x0016
 FILE_SPACE_INFO_MSG_TYPE = 0x0018
+
+# Datatype message, datatype classes
+DATATYPE_FIXED_POINT = 0
+DATATYPE_FLOATING_POINT = 1
+DATATYPE_TIME = 2
+DATATYPE_STRING = 3
+DATATYPE_BITFIELD = 4
+DATATYPE_OPAQUE = 5
+DATATYPE_COMPOUND = 6
+DATATYPE_REFERENCE = 7
+DATATYPE_ENUMERATED = 8
+DATATYPE_VARIABLE_LENGTH = 9
+DATATYPE_ARRAY = 10

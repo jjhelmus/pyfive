@@ -104,6 +104,7 @@ class HDF5File(Group):
         fh = open(filename, 'rb')
         self._superblock = SuperBlock(fh)
         sym_table = SymbolTable(fh, root=True)
+        self._root_symbol_table = sym_table
         super(HDF5File, self).__init__(None, sym_table.group_offset, fh)
 
     def close(self):
