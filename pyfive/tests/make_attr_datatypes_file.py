@@ -40,14 +40,13 @@ attrs.create('float64_big', 123, dtype='>f8')
 attrs.create('string_one', b'H', dtype='|S1')
 attrs.create('string_two', b'Hi', dtype='|S2')
 
-# TODO more complex datatypes
-
 # variable length strings
-#attrs['vlen_string'] = b'Hello'
+attrs['vlen_string'] = b'Hello'
 
 # variable length unicode
-#attrs['vlen_unicode'] = u'Hello' + chr(0x00A7)
+attrs['vlen_unicode'] = u'Hello' + chr(0x00A7)
 
+# TODO more complex datatypes
 # complex H5T_COMPOUND
 #attrs.create('complex64_little', 123+456.j, dtype='<c8')
 #attrs.create('complex128_little', 123+456.j, dtype='<c16')

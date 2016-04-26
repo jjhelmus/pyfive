@@ -123,6 +123,44 @@ class SymbolTable(object):
                 self.entries if e['cache_type'] == 1}
 
 
+class GlobalHeap(object):
+    """
+    HDF5 Global Heap collection instance.
+    """
+
+    def __init__(self, fh, offset):
+
+        fh.seek(offset)
+        header = _unpack_struct_from_file(GLOBAL_HEAP_HEADER, fh)
+        assert header['signature'] == b'GCOL'
+        assert header['version'] == 1
+        heap_data_size = header['collection_size'] - GLOBAL_HEAP_HEADER_SIZE
+        heap_data = fh.read(heap_data_size)
+        assert len(heap_data) == heap_data_size  # check for early end of file
+
+        self.heap_data = heap_data
+        self._header = header
+        self._objects = None
+
+    @property
+    def objects(self):
+        """ Dictionary of objects in the heap. """
+        if self._objects is None:
+            self._objects = OrderedDict()
+            offset = 0
+            while offset < len(self.heap_data):
+                info = _unpack_struct_from(
+                    GLOBAL_HEAP_OBJECT, self.heap_data, offset)
+                if info['object_index'] == 0:
+                    break
+                offset += GLOBAL_HEAP_OBJECT_SIZE
+                fmt = '<' + str(info['object_size']) + 's'
+                obj_data = struct.unpack_from(fmt, self.heap_data, offset)[0]
+                self._objects[info['object_index']] = obj_data
+                offset += _padded_size(info['object_size'])
+        return self._objects
+
+
 class DataObjects(object):
     """
     HDF5 DataObjects instance.
@@ -159,7 +197,7 @@ class DataObjects(object):
         attr_msgs = self.find_msg_type(ATTRIBUTE_MSG_TYPE)
         for msg in attr_msgs:
             offset = msg['offset_to_message']
-            name, value = unpack_attribute(self.msg_data, offset)
+            name, value = unpack_attribute(self.msg_data, offset, self.fh)
             attrs[name] = value
         return attrs
 
@@ -210,7 +248,7 @@ class DataObjects(object):
         return address_of_btree, address_of_heap
 
 
-def unpack_attribute(buf, offset=0):
+def unpack_attribute(buf, offset, fh):
     """ Return the attribute name and value. """
 
     attr_dict = _unpack_struct_from(ATTRIBUTE_MESSAGE_HEADER, buf, offset)
@@ -231,7 +269,19 @@ def unpack_attribute(buf, offset=0):
     attr_dict['dataspace'] = buf[offset:offset+dataspace_size]
     offset += _padded_size(dataspace_size)
 
-    value = np.frombuffer(buf, dtype=dtype, count=1, offset=offset)[0]
+    if isinstance(dtype, tuple):
+        vlen_type, padding_type, character_set = dtype
+        vlen_size, gheap_address, gheap_index = struct.unpack_from(
+            '<IQI', buf, offset)
+        globalheap = GlobalHeap(fh, gheap_address)
+        value = globalheap.objects[gheap_index]
+        if character_set == 0:
+            # ascii character set, return as bytes
+            value = value
+        else:
+            value = value.decode('utf-8')
+    else:
+        value = np.frombuffer(buf, dtype=dtype, count=1, offset=offset)[0]
     return name, value
 
 
@@ -304,8 +354,13 @@ def determine_dtype(buf, offset):
         raise NotImplementedError("Enumerated datatype class not supported.")
 
     elif datatype_class == DATATYPE_VARIABLE_LENGTH:
-        raise NotImplementedError(
-            "Non-string variable length datatypes not supported.")
+        vlen_type = datatype_msg['class_bit_field_0'] & 0x01
+        if vlen_type != 1:
+            raise NotImplementedError(
+                "Non-string variable length datatypes not supported.")
+        padding_type = datatype_msg['class_bit_field_0'] >> 4  # bits 4-7
+        character_set = datatype_msg['class_bit_field_1'] & 0x01
+        return ('VLEN_STRING', padding_type, character_set)
 
     elif datatype_class == DATATYPE_ARRAY:
         raise NotImplementedError("Array datatype class not supported.")
@@ -419,6 +474,23 @@ LOCAL_HEAP = OrderedDict((
     ('address_of_data_segment', 'Q'),   # 8 byte addressing
 ))
 
+
+# III.E Disk Format: Level 1E - Global Heap
+GLOBAL_HEAP_HEADER = OrderedDict((
+    ('signature', '4s'),
+    ('version', 'B'),
+    ('reserved', '3s'),
+    ('collection_size', 'Q'),
+))
+GLOBAL_HEAP_HEADER_SIZE = _structure_size(GLOBAL_HEAP_HEADER)
+
+GLOBAL_HEAP_OBJECT = OrderedDict((
+    ('object_index', 'H'),
+    ('reference_count', 'H'),
+    ('reserved', 'I'),
+    ('object_size', 'Q')    # 8 byte addressing
+))
+GLOBAL_HEAP_OBJECT_SIZE = _structure_size(GLOBAL_HEAP_OBJECT)
 
 # IV.A.1.a Version 1 Data Object Header Prefix
 OBJECT_HEADER_V1 = OrderedDict((

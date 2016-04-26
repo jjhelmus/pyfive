@@ -13,7 +13,6 @@ ATTR_DATATYPES_HDF5_FILE = os.path.join(DIRNAME, 'attr_datatypes.hdf5')
 
 def test_numeric_scalar_attr_datatypes():
 
-    # reading with HDF5
     hfile = pyfive.HDF5File(ATTR_DATATYPES_HDF5_FILE)
 
     assert hfile.attrs['int08_little'] == -123
@@ -44,5 +43,17 @@ def test_numeric_scalar_attr_datatypes():
     assert hfile.attrs['float32_big'] == 123.
     assert hfile.attrs['float64_big'] == 123.
 
+    hfile.close()
+
+
+def test_string_scalar_attr_datatypes():
+
+    hfile = pyfive.HDF5File(ATTR_DATATYPES_HDF5_FILE)
+
     assert hfile.attrs['string_one'] == b'H'
     assert hfile.attrs['string_two'] == b'Hi'
+
+    assert hfile.attrs['vlen_string'] == b'Hello'
+    assert hfile.attrs['vlen_unicode'] == u'Hello' + chr(0x00A7)
+
+    hfile.close()
