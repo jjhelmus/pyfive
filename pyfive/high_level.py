@@ -103,9 +103,8 @@ class HDF5File(Group):
         """ initalize. """
         fh = open(filename, 'rb')
         self._superblock = SuperBlock(fh)
-        sym_table = SymbolTable(fh, root=True)
-        self._root_symbol_table = sym_table
-        super(HDF5File, self).__init__(None, sym_table.group_offset, fh)
+        offset = self._superblock.offset_to_dataobjects
+        super(HDF5File, self).__init__(None, offset, fh)
 
     def close(self):
         """ Close the file. """

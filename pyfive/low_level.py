@@ -14,16 +14,36 @@ class SuperBlock(object):
     def __init__(self, fh):
         """ initalize. """
 
-        superblock = _unpack_struct_from_file(SUPERBLOCK, fh)
+        version_hint = struct.unpack_from('<B', fh.peek(9), 8)[0]
+        if version_hint == 0:
+            contents = _unpack_struct_from_file(SUPERBLOCK_V0, fh)
+        elif version_hint == 2:
+            contents = _unpack_struct_from_file(SUPERBLOCK_V2, fh)
+        else:
+            raise NotImplementedError(
+                "unsupported superblock version: %i" % (version))
 
         # verify contents
-        assert superblock['format_signature'] == FORMAT_SIGNATURE
-        assert superblock['superblock_version'] == 0
-        assert superblock['offset_size'] == 8
-        assert superblock['length_size'] == 8
-        assert superblock['free_space_address'] == UNDEFINED_ADDRESS
-        assert superblock['driver_information_address'] == UNDEFINED_ADDRESS
-        self._contents = superblock
+        if contents['format_signature'] != FORMAT_SIGNATURE:
+            raise OSError('Incorrect file signature')
+        if contents['offset_size'] != 8 or contents['length_size'] != 8:
+            raise NotImplementedError('File uses none 64-bit addressing')
+        self.version = contents['superblock_version']
+        self._contents = contents
+        self._offset = fh.tell()
+        self._fh = fh
+
+    @property
+    def offset_to_dataobjects(self):
+        if self.version == 0:
+            self._fh.seek(self._offset)
+            sym_table = SymbolTable(self._fh, root=True)
+            self._root_symbol_table = sym_table
+            return sym_table.group_offset
+        elif self.version == 2:
+            return self._contents['root_group_address']
+        else:
+            raise NotImplementedError
 
 
 class BTree(object):
@@ -417,7 +437,7 @@ FORMAT_SIGNATURE = b'\211HDF\r\n\032\n'
 UNDEFINED_ADDRESS = struct.unpack('<Q', b'\xff\xff\xff\xff\xff\xff\xff\xff')[0]
 
 # Version 0 SUPERBLOCK
-SUPERBLOCK = OrderedDict((
+SUPERBLOCK_V0 = OrderedDict((
     ('format_signature', '8s'),
 
     ('superblock_version', 'B'),
@@ -439,6 +459,24 @@ SUPERBLOCK = OrderedDict((
     ('free_space_address', 'Q'),            # assume 8 byte addressing
     ('end_of_file_address', 'Q'),           # assume 8 byte addressing
     ('driver_information_address', 'Q'),    # assume 8 byte addressing
+
+))
+
+# Version 2 SUPERBLOCK
+SUPERBLOCK_V2 = OrderedDict((
+    ('format_signature', '8s'),
+
+    ('superblock_version', 'B'),
+    ('offset_size', 'B'),
+    ('length_size', 'B'),
+    ('file_consistency_flags', 'B'),
+
+    ('base_address', 'Q'),                  # assume 8 byte addressing
+    ('superblock_extension_address', 'Q'),  # assume 8 byte addressing
+    ('end_of_file_address', 'Q'),           # assume 8 byte addressing
+    ('root_group_address', 'Q'),            # assume 8 byte addressing
+
+    ('superblock_checksum', 'I'),
 
 ))
 
