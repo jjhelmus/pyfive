@@ -188,6 +188,7 @@ class DataObjects(object):
 
         self.msgs = messages
         self.msg_data = message_data
+        self._global_heaps = {}
         self._header = header
         self.fh = fh
 
@@ -197,9 +198,52 @@ class DataObjects(object):
         attr_msgs = self.find_msg_type(ATTRIBUTE_MSG_TYPE)
         for msg in attr_msgs:
             offset = msg['offset_to_message']
-            name, value = unpack_attribute(self.msg_data, offset, self.fh)
+            name, value = self.unpack_attribute(offset)
             attrs[name] = value
         return attrs
+
+    def unpack_attribute(self, offset):
+        """ Return the attribute name and value. """
+
+        attr_dict = _unpack_struct_from(
+            ATTRIBUTE_MESSAGE_HEADER, self.msg_data, offset)
+        assert attr_dict['version'] == 1
+        offset += ATTRIBUTE_MESSAGE_HEADER_SIZE
+
+        # read in the attribute name
+        name_size = attr_dict['name_size']
+        name = self.msg_data[offset:offset+name_size]
+        name = name.strip(b'\x00').decode('utf-8')
+        offset += _padded_size(name_size)
+
+        # read in the datatype information
+        dtype = determine_dtype(self.msg_data, offset)
+        offset += _padded_size(attr_dict['datatype_size'])
+
+        # read in the dataspace information
+        dataspace_size = attr_dict['dataspace_size']
+        attr_dict['dataspace'] = self.msg_data[offset:offset+dataspace_size]
+        offset += _padded_size(dataspace_size)
+
+        if isinstance(dtype, tuple):
+            vlen_type, padding_type, character_set = dtype
+            vlen_size, gheap_address, gheap_index = struct.unpack_from(
+                '<IQI', self.msg_data, offset)
+            if gheap_address not in self._global_heaps:
+                # load the global heap and cache the instance
+                gheap = GlobalHeap(self.fh, gheap_address)
+                self._global_heaps[gheap_address] = gheap
+            gheap = self._global_heaps[gheap_address]
+            value = gheap.objects[gheap_index]
+            if character_set == 0:
+                # ascii character set, return as bytes
+                value = value
+            else:
+                value = value.decode('utf-8')
+        else:
+            value = np.frombuffer(
+                self.msg_data, dtype=dtype, count=1, offset=offset)[0]
+        return name, value
 
     def get_data(self):
         """ Return the data pointed to in the DataObject. """
@@ -246,43 +290,6 @@ class DataObjects(object):
         address_of_btree = symbol_table_message['btree_address']
         address_of_heap = symbol_table_message['heap_address']
         return address_of_btree, address_of_heap
-
-
-def unpack_attribute(buf, offset, fh):
-    """ Return the attribute name and value. """
-
-    attr_dict = _unpack_struct_from(ATTRIBUTE_MESSAGE_HEADER, buf, offset)
-    assert attr_dict['version'] == 1
-    offset += ATTRIBUTE_MESSAGE_HEADER_SIZE
-
-    # read in the attribute name
-    name_size = attr_dict['name_size']
-    name = buf[offset:offset+name_size].strip(b'\x00').decode('utf-8')
-    offset += _padded_size(name_size)
-
-    # read in the datatype information
-    dtype = determine_dtype(buf, offset)
-    offset += _padded_size(attr_dict['datatype_size'])
-
-    # read in the dataspace information
-    dataspace_size = attr_dict['dataspace_size']
-    attr_dict['dataspace'] = buf[offset:offset+dataspace_size]
-    offset += _padded_size(dataspace_size)
-
-    if isinstance(dtype, tuple):
-        vlen_type, padding_type, character_set = dtype
-        vlen_size, gheap_address, gheap_index = struct.unpack_from(
-            '<IQI', buf, offset)
-        globalheap = GlobalHeap(fh, gheap_address)
-        value = globalheap.objects[gheap_index]
-        if character_set == 0:
-            # ascii character set, return as bytes
-            value = value
-        else:
-            value = value.decode('utf-8')
-    else:
-        value = np.frombuffer(buf, dtype=dtype, count=1, offset=offset)[0]
-    return name, value
 
 
 def determine_dtype(buf, offset):
