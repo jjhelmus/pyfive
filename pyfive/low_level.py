@@ -188,23 +188,60 @@ class DataObjects(object):
 
     def __init__(self, fh):
         """ initalize. """
-        header = _unpack_struct_from_file(OBJECT_HEADER_V1, fh)
-        assert header['version'] == 1
-        message_data = fh.read(header['object_header_size'])
+        version_hint = struct.unpack_from('<B', fh.peek(1))[0]
+        if version_hint == 1:
+            header = _unpack_struct_from_file(OBJECT_HEADER_V1, fh)
+            assert header['version'] == 1
+            message_data = fh.read(header['object_header_size'])
 
-        offset = 0
-        messages = []
-        for _ in range(header['total_header_messages']):
-            info = _unpack_struct_from(
-                HEADER_MESSAGE_INFO, message_data, offset)
-            info['offset_to_message'] = offset + 8
-            if info['type'] == OBJECT_CONTINUATION_MSG_TYPE:
-                fh_offset, size = struct.unpack_from(
-                    '<QQ', message_data, offset + 8)
-                fh.seek(fh_offset)
-                message_data += fh.read(size)
-            messages.append(info)
-            offset += 8 + info['size']
+            offset = 0
+            messages = []
+            for _ in range(header['total_header_messages']):
+                info = _unpack_struct_from(
+                    HEADER_MESSAGE_INFO_V1, message_data, offset)
+                info['offset_to_message'] = offset + 8
+                if info['type'] == OBJECT_CONTINUATION_MSG_TYPE:
+                    fh_offset, size = struct.unpack_from(
+                        '<QQ', message_data, offset + 8)
+                    fh.seek(fh_offset)
+                    message_data += fh.read(size)
+                messages.append(info)
+                offset += 8 + info['size']
+
+        elif version_hint == ord('O'):   # first character of OHDR signanature
+            header = _unpack_struct_from_file(OBJECT_HEADER_V2, fh)
+            assert header['version'] == 2
+            assert (header['flags'] & 2**2) == 0
+            assert (header['flags'] & 2**3) == 0
+            assert (header['flags'] & 2**4) == 0
+            if header['flags'] & 2**5:
+                times = struct.unpack('<4I', fh.read(16))
+                header['access_time'] = times[0]
+                header['modification_time'] = times[1]
+                header['change_time'] = times[2]
+                header['birth_time'] = times[3]
+            chunk_fmt = ['<B', '<H', '<I', '<Q'][(header['flags'] & 3)]
+            header['size_of_chunk_0'] = struct.unpack(
+                chunk_fmt, fh.read(struct.calcsize(chunk_fmt)))[0]
+            message_data = fh.read(header['size_of_chunk_0'])
+
+            offset = 0
+            messages = []
+            while offset != len(message_data) - 4:
+                info = _unpack_struct_from(
+                    HEADER_MESSAGE_INFO_V2, message_data, offset)
+                info['offset_to_message'] = offset + 4
+                if info['type'] == OBJECT_CONTINUATION_MSG_TYPE:
+                    fh_offset, size = struct.unpack_from(
+                        '<QQ', message_data, offset + 4)
+                    fh.seek(fh_offset)
+                    new_msg_data = fh.read(size)
+                    assert new_msg_data[:4] == b'OCHK'
+                    message_data += new_msg_data[4:]
+                messages.append(info)
+                offset += 4 + info['size']
+        else:
+            raise ValueError('unknown Data Object Header')
 
         self.msgs = messages
         self.msg_data = message_data
@@ -555,6 +592,21 @@ OBJECT_HEADER_V1 = OrderedDict((
     ('padding', 'I'),
 ))
 
+# IV.A.1.b Version 2 Data Object Header Prefix
+OBJECT_HEADER_V2 = OrderedDict((
+    ('signature', '4s'),
+    ('version', 'B'),
+    ('flags', 'B'),
+    # Access time (optional)
+    # Modification time (optional)
+    # Change time (optional)
+    # Birth time (optional)
+    # Maximum # of compact attributes
+    # Maximum # of dense attributes
+    # Size of Chunk #0
+
+))
+
 
 # IV.A.2.b The Dataspace Message
 DATASPACE_MSG_HEADER_V1 = OrderedDict((
@@ -577,11 +629,18 @@ DATATYPE_MESSAGE = OrderedDict((
 ))
 
 #
-HEADER_MESSAGE_INFO = OrderedDict((
+HEADER_MESSAGE_INFO_V1 = OrderedDict((
     ('type', 'H'),
     ('size', 'H'),
     ('flags', 'B'),
     ('reserved', '3s'),
+))
+
+
+HEADER_MESSAGE_INFO_V2 = OrderedDict((
+    ('type', 'B'),
+    ('size', 'H'),
+    ('flags', 'B'),
 ))
 
 
