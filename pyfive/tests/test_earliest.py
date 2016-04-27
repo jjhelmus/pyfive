@@ -1,0 +1,49 @@
+""" Unit tests for pyfive using the earliest library version """
+import os
+
+import numpy as np
+from numpy.testing import assert_array_equal, assert_almost_equal
+
+import pyfive
+
+DIRNAME = os.path.dirname(__file__)
+EARLIEST_HDF5_FILE = os.path.join(DIRNAME, 'earliest.hdf5')
+
+
+def test_read_earliest():
+
+    hfile = pyfive.HDF5File(EARLIEST_HDF5_FILE)
+
+    # root
+    assert hfile.attrs['attr1'] == -123
+    assert hfile.attrs['attr1'].dtype == np.dtype('int32')
+
+    dset1 = hfile.datasets['dataset1']
+    assert_array_equal(dset1.data, np.arange(4))
+    assert dset1.data.dtype == np.dtype('<i4')
+    assert dset1.attrs['attr2'] == 130
+    assert dset1.attrs['attr2'].dtype == np.dtype('uint8')
+
+    # group
+    grp = hfile.groups['group1']
+    assert_almost_equal(grp.attrs['attr3'], 12.34, 2)
+    assert grp.attrs['attr3'].dtype == np.dtype('float32')
+
+    dset2 = grp.datasets['dataset2']
+    assert_array_equal(dset2.data, np.arange(4))
+    assert dset2.data.dtype == np.dtype('>u8')
+    assert dset2.attrs['attr4'] == b'Hi'
+    assert dset2.attrs['attr4'].dtype == np.dtype('|S2')
+
+    # sub-group
+    subgroup = grp.groups['subgroup1']
+    assert subgroup.attrs['attr5'] == b'Test'
+    assert isinstance(subgroup.attrs['attr5'], bytes)
+
+    dset3 = subgroup.datasets['dataset3']
+    assert_array_equal(dset2.data, np.arange(4))
+    assert dset3.data.dtype == np.dtype('<f4')
+    assert dset3.attrs['attr6'] == u'Test' + chr(0x00A7)
+    assert isinstance(dset3.attrs['attr6'], str)
+
+    hfile.close()
