@@ -251,12 +251,7 @@ class DataObjects(object):
         # shape from dataspace message
         msg = self.find_msg_type(DATASPACE_MSG_TYPE)[0]
         msg_offset = msg['offset_to_message']
-        version, ndims, flags, reserved0, reserved1, dim1_size, dim1_max = (
-            struct.unpack_from('<BBBB I QQ', self.msg_data, msg_offset))
-        assert version == 1
-        assert ndims == 1
-        assert flags == 1
-        shape = (dim1_size, )
+        shape = determine_data_shape(self.msg_data, msg_offset)
 
         # dtype from datatype message
         msg = self.find_msg_type(DATATYPE_MSG_TYPE)[0]
@@ -290,6 +285,19 @@ class DataObjects(object):
         address_of_btree = symbol_table_message['btree_address']
         address_of_heap = symbol_table_message['heap_address']
         return address_of_btree, address_of_heap
+
+
+def determine_data_shape(buf, offset):
+    """ Return the shape of the dataset pointed to in a Dataspace message. """
+    header = _unpack_struct_from(DATASPACE_MSG_HEADER_V1, buf, offset)
+    assert header['version'] == 1
+    offset += DATASPACE_MSG_HEADER_V1_SIZE
+
+    ndims = header['dimensionality']
+    dim_sizes = struct.unpack_from('<' + 'Q' * ndims, buf, offset)
+    # Dimension maximum size foloows if header['flags'] bit 0 set
+    # Permutation index follows if header['flags'] bit 1 set
+    return dim_sizes
 
 
 def determine_dtype(buf, offset):
@@ -508,6 +516,17 @@ OBJECT_HEADER_V1 = OrderedDict((
     ('object_header_size', 'I'),
     ('padding', 'I'),
 ))
+
+
+# IV.A.2.b The Dataspace Message
+DATASPACE_MSG_HEADER_V1 = OrderedDict((
+    ('version', 'B'),
+    ('dimensionality', 'B'),
+    ('flags', 'B'),
+    ('reserved_0', 'B'),
+    ('reserved_1', 'I'),
+))
+DATASPACE_MSG_HEADER_V1_SIZE = _structure_size(DATASPACE_MSG_HEADER_V1)
 
 # IV.A.2.d The Datatype Message
 
