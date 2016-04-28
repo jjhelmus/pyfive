@@ -27,22 +27,31 @@ class Group(object):
         dataobjects = DataObjects(fh)
         btree_address, heap_address = dataobjects.get_btree_heap_addresses()
 
-        fh.seek(btree_address)
-        btree = BTree(fh)
+        if btree_address is None:
+            btree = None
+        else:
+            fh.seek(btree_address)
+            btree = BTree(fh)
 
-        fh.seek(heap_address)
-        heap = Heap(fh)
+        if heap_address is None:
+            heap = None
+        else:
+            fh.seek(heap_address)
+            heap = Heap(fh)
 
         symboltables = []
         dataset_offsets = {}
         group_offsets = {}
-        for symbol_table_addreess in btree.symbol_table_addresses():
-            fh.seek(symbol_table_addreess)
-            table = SymbolTable(fh)
-            table.assign_name(heap)
-            dataset_offsets.update(table.find_datasets())
-            group_offsets.update(table.find_groups())
-            symboltables.append(table)
+        if btree is None:
+            dataset_offsets, group_offsets = dataobjects.get_links()
+        else:
+            for symbol_table_addreess in btree.symbol_table_addresses():
+                fh.seek(symbol_table_addreess)
+                table = SymbolTable(fh)
+                table.assign_name(heap)
+                dataset_offsets.update(table.find_datasets())
+                group_offsets.update(table.find_groups())
+                symboltables.append(table)
 
         # required
         self.name = name

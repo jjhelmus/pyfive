@@ -353,6 +353,10 @@ class DataObjects(object):
         """ Return the address of the B-Tree and Heap. """
         # extract the B-tree and heap address from the Symbol table message
         msgs = self.find_msg_type(SYMBOL_TABLE_MSG_TYPE)
+        if len(msgs) == 0:
+            # TODO version 2 B-tree and fractal heap objects whose addresses
+            # are stored in the Link Info messages (0x0002) but can be missing.
+            return None, None
         assert len(msgs) == 1
         assert msgs[0]['size'] == 16
         symbol_table_message = _unpack_struct_from(
@@ -362,6 +366,43 @@ class DataObjects(object):
         address_of_btree = symbol_table_message['btree_address']
         address_of_heap = symbol_table_message['heap_address']
         return address_of_btree, address_of_heap
+
+    def get_links(self):
+        """ Return the """
+        links = {}
+        link_msgs = self.find_msg_type(LINK_MSG_TYPE)
+        for link_msg in link_msgs:
+            offset = link_msg['offset_to_message']
+            version, flags = struct.unpack_from('<BB', self.msg_data, offset)
+            offset += 2
+            assert version == 1
+            assert flags == 0
+            encoding = 'ascii'
+
+            name_size = struct.unpack_from('<B', self.msg_data, offset)[0]
+            offset += 1
+            name = self.msg_data[offset:offset+name_size].decode(encoding)
+            offset += name_size
+
+            address = struct.unpack_from('<Q', self.msg_data, offset)[0]
+            links[name] = address
+
+        # sort links into groups and datasets
+        # TODO find a more efficient method for sorting links
+        group_offsets = {}
+        dataset_offsets = {}
+        for link_name, address in links.items():
+            self.fh.seek(address)
+            dataobjects = DataObjects(self.fh)
+            dspace_msgs = dataobjects.find_msg_type(DATASPACE_MSG_TYPE)
+            if len(dspace_msgs):
+                # link is to dataset
+                dataset_offsets[link_name] = address
+            else:
+                # link is to group
+                group_offsets[link_name] = address
+
+        return dataset_offsets, group_offsets
 
 
 def determine_data_shape(buf, offset):
