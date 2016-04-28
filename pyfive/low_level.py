@@ -398,7 +398,14 @@ class DataObjects(object):
             version, flags = struct.unpack_from('<BB', self.msg_data, offset)
             offset += 2
             assert version == 1
-            assert flags == 0
+            assert flags & 2**0 == 0
+            assert flags & 2**1 == 0
+            assert flags & 2**3 == 0
+            assert flags & 2**4 == 0
+            if flags & 2**2:
+                # creation order present
+                offset += 8
+
             encoding = 'ascii'
 
             name_size = struct.unpack_from('<B', self.msg_data, offset)[0]
