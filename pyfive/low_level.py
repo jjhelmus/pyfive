@@ -225,9 +225,13 @@ class DataObjects(object):
                 chunk_fmt, fh.read(struct.calcsize(chunk_fmt)))[0]
             message_data = fh.read(header['size_of_chunk_0'])
 
+            chunk_sizes = [header['size_of_chunk_0']]
+            current_chunk = 0
+            size_of_processed_chunks = 0
+
             offset = 0
             messages = []
-            while offset != len(message_data) - 4:
+            while offset < (len(message_data) - 4):
                 info = _unpack_struct_from(
                     HEADER_MESSAGE_INFO_V2, message_data, offset)
                 info['offset_to_message'] = offset + 4
@@ -237,9 +241,20 @@ class DataObjects(object):
                     fh.seek(fh_offset)
                     new_msg_data = fh.read(size)
                     assert new_msg_data[:4] == b'OCHK'
+                    chunk_sizes.append(size-4)
                     message_data += new_msg_data[4:]
                 messages.append(info)
                 offset += 4 + info['size']
+
+                chunk_offset = offset - size_of_processed_chunks
+                if (chunk_offset + 4) >= chunk_sizes[current_chunk]:
+                    # move to next chunk
+                    current_chunk_size = chunk_sizes[current_chunk]
+                    gap = current_chunk_size - chunk_offset
+                    offset += gap
+
+                    size_of_processed_chunks += current_chunk_size
+                    current_chunk += 1
         else:
             raise ValueError('unknown Data Object Header')
 
