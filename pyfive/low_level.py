@@ -211,8 +211,10 @@ class DataObjects(object):
         elif version_hint == ord('O'):   # first character of OHDR signanature
             header = _unpack_struct_from_file(OBJECT_HEADER_V2, fh)
             assert header['version'] == 2
-            assert (header['flags'] & 2**2) == 0
-            assert (header['flags'] & 2**3) == 0
+            if header['flags'] & 2**2:
+                creation_order_size = 2
+            else:
+                creation_order_size = 0
             assert (header['flags'] & 2**4) == 0
             if header['flags'] & 2**5:
                 times = struct.unpack('<4I', fh.read(16))
@@ -234,17 +236,17 @@ class DataObjects(object):
             while offset < (len(message_data) - 4):
                 info = _unpack_struct_from(
                     HEADER_MESSAGE_INFO_V2, message_data, offset)
-                info['offset_to_message'] = offset + 4
+                info['offset_to_message'] = offset + 4 + creation_order_size
                 if info['type'] == OBJECT_CONTINUATION_MSG_TYPE:
                     fh_offset, size = struct.unpack_from(
-                        '<QQ', message_data, offset + 4)
+                        '<QQ', message_data, offset + 4 + creation_order_size)
                     fh.seek(fh_offset)
                     new_msg_data = fh.read(size)
                     assert new_msg_data[:4] == b'OCHK'
                     chunk_sizes.append(size-4)
                     message_data += new_msg_data[4:]
                 messages.append(info)
-                offset += 4 + info['size']
+                offset += 4 + info['size'] + creation_order_size
 
                 chunk_offset = offset - size_of_processed_chunks
                 if (chunk_offset + 4) >= chunk_sizes[current_chunk]:
