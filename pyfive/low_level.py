@@ -357,6 +357,11 @@ class DataObjects(object):
         msg_offset = msg['offset_to_message']
         version, layout_class, data_offset, size = struct.unpack_from(
             '<BBQQ', self.msg_data, msg_offset)
+        assert version == 3
+        assert layout_class == 1
+        if data_offset == UNDEFINED_ADDRESS:
+            # no storage is backing array, return all zeros
+            return np.zeros(shape, dtype=dtype)
 
         self.fh.seek(data_offset)
         buf = self.fh.read(size)
