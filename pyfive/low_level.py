@@ -422,13 +422,21 @@ class DataObjects(object):
 
 def determine_data_shape(buf, offset):
     """ Return the shape of the dataset pointed to in a Dataspace message. """
-    header = _unpack_struct_from(DATASPACE_MSG_HEADER_V1, buf, offset)
-    assert header['version'] == 1
-    offset += DATASPACE_MSG_HEADER_V1_SIZE
+    version = struct.unpack_from('<B', buf, offset)[0]
+    if version == 1:
+        header = _unpack_struct_from(DATASPACE_MSG_HEADER_V1, buf, offset)
+        assert header['version'] == 1
+        offset += DATASPACE_MSG_HEADER_V1_SIZE
+    elif version == 2:
+        header = _unpack_struct_from(DATASPACE_MSG_HEADER_V2, buf, offset)
+        assert header['version'] == 2
+        offset += DATASPACE_MSG_HEADER_V2_SIZE
+    else:
+        raise ValueError('unknown dataspace message version')
 
     ndims = header['dimensionality']
     dim_sizes = struct.unpack_from('<' + 'Q' * ndims, buf, offset)
-    # Dimension maximum size foloows if header['flags'] bit 0 set
+    # Dimension maximum size follows if header['flags'] bit 0 set
     # Permutation index follows if header['flags'] bit 1 set
     return dim_sizes
 
@@ -703,6 +711,14 @@ DATASPACE_MSG_HEADER_V1 = OrderedDict((
     ('reserved_1', 'I'),
 ))
 DATASPACE_MSG_HEADER_V1_SIZE = _structure_size(DATASPACE_MSG_HEADER_V1)
+
+DATASPACE_MSG_HEADER_V2 = OrderedDict((
+    ('version', 'B'),
+    ('dimensionality', 'B'),
+    ('flags', 'B'),
+    ('type', 'B'),
+))
+DATASPACE_MSG_HEADER_V2_SIZE = _structure_size(DATASPACE_MSG_HEADER_V2)
 
 # IV.A.2.d The Datatype Message
 
