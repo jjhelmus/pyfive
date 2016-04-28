@@ -257,30 +257,50 @@ class DataObjects(object):
             offset = msg['offset_to_message']
             name, value = self.unpack_attribute(offset)
             attrs[name] = value
+        # TODO attributes may also be stored in objects reference in the
+        # Attribute Info Message (0x0015, 21).
         return attrs
 
     def unpack_attribute(self, offset):
         """ Return the attribute name and value. """
 
-        attr_dict = _unpack_struct_from(
-            ATTRIBUTE_MESSAGE_HEADER, self.msg_data, offset)
-        assert attr_dict['version'] == 1
-        offset += ATTRIBUTE_MESSAGE_HEADER_SIZE
+        version = struct.unpack_from('<B', self.msg_data, offset)[0]
+        if version == 1:
+            attr_dict = _unpack_struct_from(
+                ATTRIBUTE_MESSAGE_HEADER_V1, self.msg_data, offset)
+            assert attr_dict['version'] == 1
+            encoding = 'ascii'
+            offset += ATTRIBUTE_MESSAGE_HEADER_V1_SIZE
+            padding_multiple = 8
+
+        elif version == 3:
+            attr_dict = _unpack_struct_from(
+                ATTRIBUTE_MESSAGE_HEADER_V3, self.msg_data, offset)
+            assert attr_dict['version'] == 3
+            offset += ATTRIBUTE_MESSAGE_HEADER_V3_SIZE
+            if attr_dict['character_set_encoding'] == 0:
+                encoding = 'ascii'
+            else:
+                encoding = 'utf-8'
+            padding_multiple = 1    # no padding
+        else:
+            raise NotImplementedError(
+                "unsupported attribute message version: %i" % (version))
 
         # read in the attribute name
         name_size = attr_dict['name_size']
         name = self.msg_data[offset:offset+name_size]
-        name = name.strip(b'\x00').decode('utf-8')
-        offset += _padded_size(name_size)
+        name = name.strip(b'\x00').decode(encoding)
+        offset += _padded_size(name_size, padding_multiple)
 
         # read in the datatype information
         dtype = determine_dtype(self.msg_data, offset)
-        offset += _padded_size(attr_dict['datatype_size'])
+        offset += _padded_size(attr_dict['datatype_size'], padding_multiple)
 
         # read in the dataspace information
         dataspace_size = attr_dict['dataspace_size']
         attr_dict['dataspace'] = self.msg_data[offset:offset+dataspace_size]
-        offset += _padded_size(dataspace_size)
+        offset += _padded_size(dataspace_size, padding_multiple)
 
         if isinstance(dtype, tuple):
             vlen_type, padding_type, character_set = dtype
@@ -545,14 +565,24 @@ SYMBOL_TABLE_ENTRY = OrderedDict((
 ))
 
 # IV.A.2.m The Attribute Message
-ATTRIBUTE_MESSAGE_HEADER = OrderedDict((
+ATTRIBUTE_MESSAGE_HEADER_V1 = OrderedDict((
     ('version', 'B'),
     ('reserved', 'B'),
     ('name_size', 'H'),
     ('datatype_size', 'H'),
     ('dataspace_size', 'H'),
 ))
-ATTRIBUTE_MESSAGE_HEADER_SIZE = _structure_size(ATTRIBUTE_MESSAGE_HEADER)
+ATTRIBUTE_MESSAGE_HEADER_V1_SIZE = _structure_size(ATTRIBUTE_MESSAGE_HEADER_V1)
+
+ATTRIBUTE_MESSAGE_HEADER_V3 = OrderedDict((
+    ('version', 'B'),
+    ('flags', 'B'),
+    ('name_size', 'H'),
+    ('datatype_size', 'H'),
+    ('dataspace_size', 'H'),
+    ('character_set_encoding', 'B'),
+))
+ATTRIBUTE_MESSAGE_HEADER_V3_SIZE = _structure_size(ATTRIBUTE_MESSAGE_HEADER_V3)
 
 # III.D Disk Format: Level 1D - Local Heaps
 LOCAL_HEAP = OrderedDict((
