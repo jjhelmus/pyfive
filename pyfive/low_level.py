@@ -2,6 +2,7 @@
 
 import struct
 from collections import OrderedDict
+import warnings
 
 import numpy as np
 
@@ -311,7 +312,12 @@ class DataObjects(object):
         offset += _padded_size(name_size, padding_multiple)
 
         # read in the datatype information
-        dtype = determine_dtype(self.msg_data, offset)
+        try:
+            dtype = determine_dtype(self.msg_data, offset)
+        except NotImplementedError:
+            warnings.warn(
+                'Attribute %s type not implemented, set to None.' % (name, ))
+            return name, None
         offset += _padded_size(attr_dict['datatype_size'], padding_multiple)
 
         # read in the dataspace information
