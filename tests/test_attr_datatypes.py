@@ -5,7 +5,6 @@ import numpy as np
 from numpy.testing import assert_array_equal
 
 import pyfive
-import h5py
 
 DIRNAME = os.path.dirname(__file__)
 ATTR_DATATYPES_HDF5_FILE = os.path.join(DIRNAME, 'attr_datatypes.hdf5')
