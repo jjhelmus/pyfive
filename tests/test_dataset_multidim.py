@@ -12,19 +12,18 @@ DATASET_MULTIDIM_HDF5_FILE = os.path.join(DIRNAME, 'dataset_multidim.hdf5')
 
 def test_multidim_datasets():
 
-    hfile = pyfive.HDF5File(DATASET_MULTIDIM_HDF5_FILE)
-    dsets = hfile.datasets
+    hfile = pyfive.File(DATASET_MULTIDIM_HDF5_FILE)
 
     # check shapes
-    assert dsets['a'].data.shape == (2, )
-    assert dsets['b'].data.shape == (2, 3)
-    assert dsets['c'].data.shape == (2, 3, 4)
-    assert dsets['d'].data.shape == (2, 3, 4, 5)
+    assert hfile['a'][:].shape == (2, )
+    assert hfile['b'][:].shape == (2, 3)
+    assert hfile['c'][:].shape == (2, 3, 4)
+    assert hfile['d'][:].shape == (2, 3, 4, 5)
 
     # check data
-    assert_array_equal(dsets['a'].data, np.arange(2).reshape((2, )))
-    assert_array_equal(dsets['b'].data, np.arange(6).reshape((2, 3)))
-    assert_array_equal(dsets['c'].data, np.arange(24).reshape((2, 3, 4)))
-    assert_array_equal(dsets['d'].data, np.arange(120).reshape((2, 3, 4, 5)))
+    assert_array_equal(hfile['a'][:], np.arange(2).reshape((2, )))
+    assert_array_equal(hfile['b'][:], np.arange(6).reshape((2, 3)))
+    assert_array_equal(hfile['c'][:], np.arange(24).reshape((2, 3, 4)))
+    assert_array_equal(hfile['d'][:], np.arange(120).reshape((2, 3, 4, 5)))
 
     hfile.close()

@@ -2,11 +2,12 @@
 
 # Requires in Python 2.7 for open to return a BufferedReader
 from io import open
+from collections import Mapping
 
 from .low_level import SuperBlock, BTree, Heap, SymbolTable, DataObjects
 
 
-class Group(object):
+class Group(Mapping):
     """
     An HDF5 Group which may hold attributes, datasets, or other groups.
 
@@ -23,7 +24,7 @@ class Group(object):
 
     """
 
-    def __init__(self, name, offset, fh):
+    def __init__(self, name, offset, fh, parent):
         """ initalize. """
 
         fh.seek(offset)
@@ -57,6 +58,8 @@ class Group(object):
                 symboltables.append(table)
 
         # required
+        self.parent = parent
+        self.file = parent.file
         self.name = name
         self._dataset_offsets = dataset_offsets
         self._group_offsets = group_offsets
@@ -73,21 +76,59 @@ class Group(object):
         self._groups = None
         self._attrs = None
 
-    @property
-    def datasets(self):
-        """ Dictionary of datasets in group. """
-        if self._datasets is None:
-            self._datasets = {k: Dataset(k, v, self._fh) for k, v in
-                              self._dataset_offsets.items()}
-        return self._datasets
+    def __len__(self):
+        """ Number of links in the group. """
+        return len(self._dataset_offsets) + len(self._group_offsets)
 
-    @property
-    def groups(self):
-        """ Dictionary of sub-groups in the group. """
-        if self._groups is None:
-            self._groups = {k: Group(k, v, self._fh) for k, v in
-                            self._group_offsets.items()}
-        return self._groups
+    def __getitem__(self, y):
+        """ x.__getitem__(y) <==> x[y] """
+        y = y.strip('/')
+        if self.name == '/':
+            sep = ''
+        else:
+            sep = '/'
+        if y in self._dataset_offsets:
+            return Dataset(
+                self.name + sep + y, self._dataset_offsets[y], self._fh, self)
+        elif y in self._group_offsets:
+            return Group(
+                self.name + sep + y, self._group_offsets[y], self._fh, self)
+        else:
+            raise KeyError('%s not found in group' % (y))
+
+    def __iter__(self):
+        for k, v in self._dataset_offsets.items():
+            yield k
+        for k, v in self._group_offsets.items():
+            yield k
+
+    def visit(self, func):
+        """
+        Recursively visit all names in the group and subgroups.
+
+        func should be a callable with the signature:
+
+            func(name) -> None or return value
+
+        Returning None continues iteration, return anything else stops and
+        return that value from the visit method.
+
+        """
+        raise NotImplementedError
+
+    def visititems(self, func):
+        """
+        Recursively visit all objects in this group and subgroups.
+
+        func should be a callable with the signature:
+
+            func(name, object) -> None or return value
+
+        Returning None continues iteration, return anything else stops and
+        return that value from the visit method.
+
+        """
+        raise NotImplementedError
 
     @property
     def attrs(self):
@@ -97,7 +138,7 @@ class Group(object):
         return self._attrs
 
 
-class HDF5File(Group):
+class File(Group):
     """
     Open a HDF5 file.
 
@@ -116,7 +157,11 @@ class HDF5File(Group):
         fh = open(filename, 'rb')
         self._superblock = SuperBlock(fh)
         offset = self._superblock.offset_to_dataobjects
-        super(HDF5File, self).__init__(None, offset, fh)
+        self.filename = filename
+        self.file = self
+        self.mode = 'r'
+        self.userblock_size = 0
+        super(File, self).__init__('/', offset, fh, self)
 
     def close(self):
         """ Close the file. """
@@ -139,12 +184,76 @@ class Dataset(object):
 
     """
 
-    def __init__(self, name, offset, fh):
+    def __init__(self, name, offset, fh, parent):
         """ initalize with fh position at the Data Object Header. """
-        self.name = name
         fh.seek(offset)
         self._dataobjects = DataObjects(fh)
         self._attrs = None
+
+        self.parent = parent
+        self.file = parent.file
+        self.name = name
+
+    def __getitem__(self, args):
+        return self._dataobjects.get_data()[args]
+
+    def read_direct(self, array, source_sel=None, dset_sel=None):
+        """ Read from a HDF5 dataset directly into a NumPy array. """
+        raise NotImplementedError
+
+    def astype(self, dtype):
+        """
+        Return a context manager which returns data as a particular type.
+        """
+        raise NotImplementedError
+
+    def len(self):
+        """ Return the size of the first axis. """
+        return self.shape[0]
+
+    @property
+    def shape(self):
+        return self._dataobjects.get_data().shape
+
+    @property
+    def dtype(self):
+        return self._dataobjects.get_data().dtype
+
+    @property
+    def size(self):
+        return self._dataobjects.get_data().size
+
+    @property
+    def chunks(self):
+        return None  # TODO support chunks
+
+    @property
+    def compression(self):
+        return None  # TODO support compression
+
+    @property
+    def compression_opts(self):
+        return None  # TODO support compression
+
+    @property
+    def scaleoffset(self):
+        return None  # TODO support scale-offset filter
+
+    @property
+    def shuffle(self):
+        return False  # TODO support shuffle filter
+
+    @property
+    def fletcher32(self):
+        return False  # TODO support fletcher32 checksumming
+
+    @property
+    def fillvalue(self):
+        raise NotImplementedError
+
+    @property
+    def dims(self):
+        raise NotImplementedError
 
     @property
     def attrs(self):
@@ -152,8 +261,3 @@ class Dataset(object):
         if self._attrs is None:
             self._attrs = self._dataobjects.get_attributes()
         return self._attrs
-
-    @property
-    def data(self):
-        """ N-dimensional array of data in the dataset. """
-        return self._dataobjects.get_data()
