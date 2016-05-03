@@ -1,5 +1,6 @@
 """ Unit tests for pyfive's ability to read a NetCDF4 Classic file """
 import os
+import warnings
 
 import numpy as np
 from numpy.testing import assert_array_equal, assert_almost_equal
@@ -24,7 +25,9 @@ def test_read_netcdf4_classic():
     assert_array_equal(var1.data, np.arange(4))
 
     # dataset attributes
-    assert_almost_equal(var1.attrs['attr3'], 12.34, 2)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        assert_almost_equal(var1.attrs['attr3'], 12.34, 2)
     assert var1.attrs['attr4'] == b'Hi'
 
     hfile.close()
