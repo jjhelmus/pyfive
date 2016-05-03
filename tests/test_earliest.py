@@ -1,4 +1,5 @@
 """ Unit tests for pyfive using the earliest library version """
+
 import os
 
 import numpy as np
@@ -8,6 +9,12 @@ import pyfive
 
 DIRNAME = os.path.dirname(__file__)
 EARLIEST_HDF5_FILE = os.path.join(DIRNAME, 'earliest.hdf5')
+
+# Polygot string type for representing unicode
+try:
+    string_type = unicode
+except NameError:
+    string_type = str
 
 
 def test_read_earliest():
@@ -43,7 +50,7 @@ def test_read_earliest():
     dset3 = subgroup.datasets['dataset3']
     assert_array_equal(dset2.data, np.arange(4))
     assert dset3.data.dtype == np.dtype('<f4')
-    assert dset3.attrs['attr6'] == u'Test' + chr(0x00A7)
-    assert isinstance(dset3.attrs['attr6'], str)
+    assert dset3.attrs['attr6'] == u'Test' + b'\xc2\xa7'.decode('utf-8')
+    assert isinstance(dset3.attrs['attr6'], string_type)
 
     hfile.close()

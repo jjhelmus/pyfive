@@ -53,6 +53,7 @@ def test_string_scalar_attr_datatypes():
     assert hfile.attrs['string_two'] == b'Hi'
 
     assert hfile.attrs['vlen_string'] == b'Hello'
-    assert hfile.attrs['vlen_unicode'] == u'Hello' + chr(0x00A7)
+    assert hfile.attrs['vlen_unicode'] == (
+        u'Hello' + b'\xc2\xa7'.decode('utf-8'))
 
     hfile.close()

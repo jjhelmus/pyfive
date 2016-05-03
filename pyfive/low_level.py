@@ -1,5 +1,7 @@
 """ low-level classes for reading HDF5 files.  """
 
+from __future__ import division
+
 import struct
 from collections import OrderedDict
 import warnings

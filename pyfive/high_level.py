@@ -1,5 +1,8 @@
 """ High-level classes for reading HDF5 files.  """
 
+# Requires in Python 2.7 for open to return a BufferedReader
+from io import open
+
 from .low_level import SuperBlock, BTree, Heap, SymbolTable, DataObjects
 
 
