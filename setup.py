@@ -31,7 +31,6 @@ setup(
         'Programming Language :: Python :: 3.5',
         'Topic :: Scientific/Engineering',
     ],
-    packages=['pyfive', 'pyfive.tests'],
+    packages=['pyfive'],
     install_requires=['numpy'],
-    package_data={'pyfive': ['tests/*.hdf5', 'tests/*.nc']}
 )
