@@ -9,6 +9,11 @@ import warnings
 import numpy as np
 
 
+class InvalidHDF5File(Exception):
+    """ Exception raised when an invalid HDF5 file is detected. """
+    pass
+
+
 class SuperBlock(object):
     """
     HDF5 Superblock instance.
@@ -28,7 +33,7 @@ class SuperBlock(object):
 
         # verify contents
         if contents['format_signature'] != FORMAT_SIGNATURE:
-            raise OSError('Incorrect file signature')
+            raise InvalidHDF5File('Incorrect file signature')
         if contents['offset_size'] != 8 or contents['length_size'] != 8:
             raise NotImplementedError('File uses none 64-bit addressing')
         self.version = contents['superblock_version']
@@ -261,7 +266,7 @@ class DataObjects(object):
                     size_of_processed_chunks += current_chunk_size
                     current_chunk += 1
         else:
-            raise ValueError('unknown Data Object Header')
+            raise InvalidHDF5File('unknown Data Object Header')
 
         self.msgs = messages
         self.msg_data = message_data
@@ -454,7 +459,7 @@ def determine_data_shape(buf, offset):
         assert header['version'] == 2
         offset += DATASPACE_MSG_HEADER_V2_SIZE
     else:
-        raise ValueError('unknown dataspace message version')
+        raise InvalidHDF5File('unknown dataspace message version')
 
     ndims = header['dimensionality']
     dim_sizes = struct.unpack_from('<' + 'Q' * ndims, buf, offset)
@@ -543,7 +548,7 @@ def determine_dtype(buf, offset):
     elif datatype_class == DATATYPE_ARRAY:
         raise NotImplementedError("Array datatype class not supported.")
     else:
-        raise ValueError('Invalid datatype class %i' % (datatype_class))
+        raise InvalidHDF5File('Invalid datatype class %i' % (datatype_class))
 
 
 def _padded_size(size, padding_multipe=8):
