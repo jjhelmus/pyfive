@@ -24,14 +24,14 @@ class Group(Mapping):
 
     """
 
-    def __init__(self, name, offset, parent):
+    def __init__(self, name, dataobjects, parent):
         """ initalize. """
 
         self.parent = parent
         self.file = parent.file
         self.name = name
 
-        dataobjects = DataObjects(self.file._fh, offset)
+        dataobjects = dataobjects
         btree_address, heap_address = dataobjects.get_btree_heap_addresses()
 
         if btree_address is None:
@@ -84,9 +84,11 @@ class Group(Mapping):
         else:
             sep = '/'
         if y in self._dataset_offsets:
-            return Dataset(self.name + sep + y, self._dataset_offsets[y], self)
+            dataobjects = DataObjects(self.file._fh, self._dataset_offsets[y])
+            return Dataset(self.name + sep + y, dataobjects, self)
         elif y in self._group_offsets:
-            return Group(self.name + sep + y, self._group_offsets[y], self)
+            dataobjects = DataObjects(self.file._fh, self._group_offsets[y])
+            return Group(self.name + sep + y, dataobjects, self)
         else:
             raise KeyError('%s not found in group' % (y))
 
@@ -151,11 +153,13 @@ class File(Group):
         self._fh = open(filename, 'rb')
         self._superblock = SuperBlock(self._fh, 0)
         offset = self._superblock.offset_to_dataobjects
+        dataobjects = DataObjects(self._fh, offset)
+
         self.filename = filename
         self.file = self
         self.mode = 'r'
         self.userblock_size = 0
-        super(File, self).__init__('/', offset, self)
+        super(File, self).__init__('/', dataobjects, self)
 
     def close(self):
         """ Close the file. """
@@ -178,13 +182,13 @@ class Dataset(object):
 
     """
 
-    def __init__(self, name, offset, parent):
+    def __init__(self, name, dataobjects, parent):
         """ initalize with fh position at the Data Object Header. """
         self.parent = parent
         self.file = parent.file
         self.name = name
 
-        self._dataobjects = DataObjects(self.file._fh, offset)
+        self._dataobjects = dataobjects
         self._attrs = None
 
     def __getitem__(self, args):
