@@ -24,24 +24,28 @@ class Group(Mapping):
 
     """
 
-    def __init__(self, name, offset, fh, parent):
+    def __init__(self, name, offset, parent):
         """ initalize. """
 
-        fh.seek(offset)
-        dataobjects = DataObjects(fh)
+        self.parent = parent
+        self.file = parent.file
+        self.name = name
+
+        self.file._fh.seek(offset)
+        dataobjects = DataObjects(self.file._fh)
         btree_address, heap_address = dataobjects.get_btree_heap_addresses()
 
         if btree_address is None:
             btree = None
         else:
-            fh.seek(btree_address)
-            btree = BTree(fh)
+            self.file._fh.seek(btree_address)
+            btree = BTree(self.file._fh)
 
         if heap_address is None:
             heap = None
         else:
-            fh.seek(heap_address)
-            heap = Heap(fh)
+            self.file._fh.seek(heap_address)
+            heap = Heap(self.file._fh)
 
         symboltables = []
         dataset_offsets = {}
@@ -50,22 +54,18 @@ class Group(Mapping):
             dataset_offsets, group_offsets = dataobjects.get_links()
         else:
             for symbol_table_addreess in btree.symbol_table_addresses():
-                fh.seek(symbol_table_addreess)
-                table = SymbolTable(fh)
+                self.file._fh.seek(symbol_table_addreess)
+                table = SymbolTable(self.file._fh)
                 table.assign_name(heap)
                 dataset_offsets.update(table.find_datasets())
                 group_offsets.update(table.find_groups())
                 symboltables.append(table)
 
         # required
-        self.parent = parent
-        self.file = parent.file
-        self.name = name
         self._dataset_offsets = dataset_offsets
         self._group_offsets = group_offsets
 
         # low-level objects stored for debugging
-        self._fh = fh
         self._dataobjects = dataobjects
         self._btree = btree
         self._heap = heap
@@ -88,11 +88,9 @@ class Group(Mapping):
         else:
             sep = '/'
         if y in self._dataset_offsets:
-            return Dataset(
-                self.name + sep + y, self._dataset_offsets[y], self._fh, self)
+            return Dataset(self.name + sep + y, self._dataset_offsets[y], self)
         elif y in self._group_offsets:
-            return Group(
-                self.name + sep + y, self._group_offsets[y], self._fh, self)
+            return Group(self.name + sep + y, self._group_offsets[y], self)
         else:
             raise KeyError('%s not found in group' % (y))
 
@@ -154,14 +152,14 @@ class File(Group):
 
     def __init__(self, filename):
         """ initalize. """
-        fh = open(filename, 'rb')
-        self._superblock = SuperBlock(fh)
+        self._fh = open(filename, 'rb')
+        self._superblock = SuperBlock(self._fh)
         offset = self._superblock.offset_to_dataobjects
         self.filename = filename
         self.file = self
         self.mode = 'r'
         self.userblock_size = 0
-        super(File, self).__init__('/', offset, fh, self)
+        super(File, self).__init__('/', offset, self)
 
     def close(self):
         """ Close the file. """
@@ -184,15 +182,15 @@ class Dataset(object):
 
     """
 
-    def __init__(self, name, offset, fh, parent):
+    def __init__(self, name, offset, parent):
         """ initalize with fh position at the Data Object Header. """
-        fh.seek(offset)
-        self._dataobjects = DataObjects(fh)
-        self._attrs = None
-
         self.parent = parent
         self.file = parent.file
         self.name = name
+
+        self.file._fh.seek(offset)
+        self._dataobjects = DataObjects(self.file._fh)
+        self._attrs = None
 
     def __getitem__(self, args):
         return self._dataobjects.get_data()[args]
