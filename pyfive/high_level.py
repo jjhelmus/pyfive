@@ -31,21 +31,18 @@ class Group(Mapping):
         self.file = parent.file
         self.name = name
 
-        self.file._fh.seek(offset)
-        dataobjects = DataObjects(self.file._fh)
+        dataobjects = DataObjects(self.file._fh, offset)
         btree_address, heap_address = dataobjects.get_btree_heap_addresses()
 
         if btree_address is None:
             btree = None
         else:
-            self.file._fh.seek(btree_address)
-            btree = BTree(self.file._fh)
+            btree = BTree(self.file._fh, btree_address)
 
         if heap_address is None:
             heap = None
         else:
-            self.file._fh.seek(heap_address)
-            heap = Heap(self.file._fh)
+            heap = Heap(self.file._fh, heap_address)
 
         symboltables = []
         dataset_offsets = {}
@@ -53,9 +50,8 @@ class Group(Mapping):
         if btree is None:
             dataset_offsets, group_offsets = dataobjects.get_links()
         else:
-            for symbol_table_addreess in btree.symbol_table_addresses():
-                self.file._fh.seek(symbol_table_addreess)
-                table = SymbolTable(self.file._fh)
+            for symbol_table_address in btree.symbol_table_addresses():
+                table = SymbolTable(self.file._fh, symbol_table_address)
                 table.assign_name(heap)
                 dataset_offsets.update(table.find_datasets())
                 group_offsets.update(table.find_groups())
@@ -153,7 +149,7 @@ class File(Group):
     def __init__(self, filename):
         """ initalize. """
         self._fh = open(filename, 'rb')
-        self._superblock = SuperBlock(self._fh)
+        self._superblock = SuperBlock(self._fh, 0)
         offset = self._superblock.offset_to_dataobjects
         self.filename = filename
         self.file = self
@@ -188,8 +184,7 @@ class Dataset(object):
         self.file = parent.file
         self.name = name
 
-        self.file._fh.seek(offset)
-        self._dataobjects = DataObjects(self.file._fh)
+        self._dataobjects = DataObjects(self.file._fh, offset)
         self._attrs = None
 
     def __getitem__(self, args):

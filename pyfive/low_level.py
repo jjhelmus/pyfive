@@ -19,9 +19,10 @@ class SuperBlock(object):
     HDF5 Superblock instance.
     """
 
-    def __init__(self, fh):
+    def __init__(self, fh, offset):
         """ initalize. """
 
+        fh.seek(offset)
         version_hint = struct.unpack_from('<B', fh.peek(9), 8)[0]
         if version_hint == 0:
             contents = _unpack_struct_from_file(SUPERBLOCK_V0, fh)
@@ -44,8 +45,7 @@ class SuperBlock(object):
     @property
     def offset_to_dataobjects(self):
         if self.version == 0:
-            self._fh.seek(self._offset)
-            sym_table = SymbolTable(self._fh, root=True)
+            sym_table = SymbolTable(self._fh, self._offset, root=True)
             self._root_symbol_table = sym_table
             return sym_table.group_offset
         elif self.version == 2:
@@ -59,8 +59,9 @@ class BTree(object):
     HDF5 B-Tree instance.
     """
 
-    def __init__(self, fh):
+    def __init__(self, fh, offset):
         """ initalize. """
+        fh.seek(offset)
         self.nodes = []
         node = _unpack_struct_from_file(B_LINK_NODE_V1, fh)
         assert node['signature'] == b'TREE'
@@ -92,9 +93,10 @@ class Heap(object):
     HDF5 local heap instance.
     """
 
-    def __init__(self, fh):
+    def __init__(self, fh, offset):
         """ initalize. """
 
+        fh.seek(offset)
         local_heap = _unpack_struct_from_file(LOCAL_HEAP, fh)
         assert local_heap['signature'] == b'HEAP'
         assert local_heap['version'] == 0
@@ -115,9 +117,10 @@ class SymbolTable(object):
     HDF5 Symbol Table instance.
     """
 
-    def __init__(self, fh, root=False):
+    def __init__(self, fh, offset, root=False):
         """ initialize, root=True for the root group, False otherwise. """
 
+        fh.seek(offset)
         if root:
             # The root symbol table has no Symbol table node header
             # and contains only a single entry
@@ -194,8 +197,9 @@ class DataObjects(object):
     HDF5 DataObjects instance.
     """
 
-    def __init__(self, fh):
+    def __init__(self, fh, offset):
         """ initalize. """
+        fh.seek(offset)
         version_hint = struct.unpack_from('<B', fh.peek(1))[0]
         if version_hint == 1:
             header = _unpack_struct_from_file(OBJECT_HEADER_V1, fh)
@@ -434,8 +438,7 @@ class DataObjects(object):
         group_offsets = {}
         dataset_offsets = {}
         for link_name, address in links.items():
-            self.fh.seek(address)
-            dataobjects = DataObjects(self.fh)
+            dataobjects = DataObjects(self.fh, address)
             dspace_msgs = dataobjects.find_msg_type(DATASPACE_MSG_TYPE)
             if len(dspace_msgs):
                 # link is to dataset
