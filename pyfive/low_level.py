@@ -306,7 +306,7 @@ class DataObjects(object):
             if attr_dict['character_set_encoding'] == 0:
                 encoding = 'ascii'
             else:
-                encoding = 'utf-8'
+                encoding = 'utf-8'  # this is not always set
             padding_multiple = 1    # no padding
         else:
             raise NotImplementedError(
@@ -536,6 +536,9 @@ def determine_dtype(buf, offset):
     elif datatype_class == DATATYPE_ENUMERATED:
         raise NotImplementedError("Enumerated datatype class not supported.")
 
+    elif datatype_class == DATATYPE_ARRAY:
+        raise NotImplementedError("Array datatype class not supported.")
+
     elif datatype_class == DATATYPE_VARIABLE_LENGTH:
         vlen_type = datatype_msg['class_bit_field_0'] & 0x01
         if vlen_type != 1:
@@ -545,8 +548,6 @@ def determine_dtype(buf, offset):
         character_set = datatype_msg['class_bit_field_1'] & 0x01
         return ('VLEN_STRING', padding_type, character_set)
 
-    elif datatype_class == DATATYPE_ARRAY:
-        raise NotImplementedError("Array datatype class not supported.")
     else:
         raise InvalidHDF5File('Invalid datatype class %i' % (datatype_class))
 

@@ -30,4 +30,8 @@ def test_read_netcdf4_classic():
         assert_almost_equal(var1.attrs['attr3'], 12.34, 2)
     assert var1.attrs['attr4'] == b'Hi'
 
+    # dimension dataset
+    assert 'x' in hfile
+    assert_array_equal(hfile['x'][:], np.zeros((4, )))
+
     hfile.close()
