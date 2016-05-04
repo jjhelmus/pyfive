@@ -4,7 +4,7 @@
 from io import open
 from collections import Mapping
 
-from .low_level import SuperBlock, BTree, Heap, SymbolTable, DataObjects
+from .low_level import SuperBlock, DataObjects
 
 
 class Group(Mapping):
@@ -31,71 +31,34 @@ class Group(Mapping):
         self.file = parent.file
         self.name = name
 
-        dataobjects = dataobjects
-        btree_address, heap_address = dataobjects.get_btree_heap_addresses()
-
-        if btree_address is None:
-            btree = None
-        else:
-            btree = BTree(self.file._fh, btree_address)
-
-        if heap_address is None:
-            heap = None
-        else:
-            heap = Heap(self.file._fh, heap_address)
-
-        symboltables = []
-        dataset_offsets = {}
-        group_offsets = {}
-        if btree is None:
-            dataset_offsets, group_offsets = dataobjects.get_links()
-        else:
-            for symbol_table_address in btree.symbol_table_addresses():
-                table = SymbolTable(self.file._fh, symbol_table_address)
-                table.assign_name(heap)
-                dataset_offsets.update(table.find_datasets())
-                group_offsets.update(table.find_groups())
-                symboltables.append(table)
-
-        # required
-        self._dataset_offsets = dataset_offsets
-        self._group_offsets = group_offsets
-
-        # low-level objects stored for debugging
+        self._links = dataobjects.get_links()
         self._dataobjects = dataobjects
-        self._btree = btree
-        self._heap = heap
-        self._symboltables = symboltables
-
-        # cached properties
-        self._datasets = None
-        self._groups = None
-        self._attrs = None
+        self._attrs = None  # cached property
 
     def __len__(self):
         """ Number of links in the group. """
-        return len(self._dataset_offsets) + len(self._group_offsets)
+        return len(self._links)
 
     def __getitem__(self, y):
         """ x.__getitem__(y) <==> x[y] """
         y = y.strip('/')
+
+        if y not in self._links:
+            raise KeyError('%s not found in group' % (y))
+
         if self.name == '/':
             sep = ''
         else:
             sep = '/'
-        if y in self._dataset_offsets:
-            dataobjects = DataObjects(self.file._fh, self._dataset_offsets[y])
+
+        dataobjects = DataObjects(self.file._fh, self._links[y])
+        if dataobjects.is_dataset:
             return Dataset(self.name + sep + y, dataobjects, self)
-        elif y in self._group_offsets:
-            dataobjects = DataObjects(self.file._fh, self._group_offsets[y])
-            return Group(self.name + sep + y, dataobjects, self)
         else:
-            raise KeyError('%s not found in group' % (y))
+            return Group(self.name + sep + y, dataobjects, self)
 
     def __iter__(self):
-        for k, v in self._dataset_offsets.items():
-            yield k
-        for k, v in self._group_offsets.items():
+        for k in self._links.keys():
             yield k
 
     def visit(self, func):

@@ -143,15 +143,10 @@ class SymbolTable(object):
             entry['link_name'] = link_name
         return
 
-    def find_datasets(self):
-        """ Return a dictionary of datasets and offsets. """
+    def get_links(self):
+        """ Return a dictionary of links (dataset/group) and offsets. """
         return {e['link_name']: e['object_header_address'] for e in
-                self.entries if e['cache_type'] == 0}
-
-    def find_groups(self):
-        """ Return a dictionary of group name: offsets. """
-        return {e['link_name']: e['object_header_address'] for e in
-                self.entries if e['cache_type'] == 1}
+                self.entries}
 
 
 class GlobalHeap(object):
@@ -388,26 +383,33 @@ class DataObjects(object):
         """ Return a list of all messages of a given type. """
         return [m for m in self.msgs if m['type'] == msg_type]
 
-    def get_btree_heap_addresses(self):
-        """ Return the address of the B-Tree and Heap. """
-        # extract the B-tree and heap address from the Symbol table message
-        msgs = self.find_msg_type(SYMBOL_TABLE_MSG_TYPE)
-        if len(msgs) == 0:
-            # TODO version 2 B-tree and fractal heap objects whose addresses
-            # are stored in the Link Info messages (0x0002) but can be missing.
-            return None, None
-        assert len(msgs) == 1
-        assert msgs[0]['size'] == 16
+    def get_links(self):
+        """ Return a dictionary of link_name: offset """
+        sym_tbl_msgs = self.find_msg_type(SYMBOL_TABLE_MSG_TYPE)
+        if len(sym_tbl_msgs):
+            return self._get_links_from_symbol_tables(sym_tbl_msgs)
+        else:
+            return self._get_links_from_link_msgs()
+
+    def _get_links_from_symbol_tables(self, sym_tbl_msgs):
+        """ Return a dict of link_name: offset from a symbol table. """
+        assert len(sym_tbl_msgs) == 1
+        assert sym_tbl_msgs[0]['size'] == 16
         symbol_table_message = _unpack_struct_from(
             SYMBOL_TABLE_MESSAGE, self.msg_data,
-            msgs[0]['offset_to_message'])
+            sym_tbl_msgs[0]['offset_to_message'])
 
-        address_of_btree = symbol_table_message['btree_address']
-        address_of_heap = symbol_table_message['heap_address']
-        return address_of_btree, address_of_heap
+        btree = BTree(self.fh, symbol_table_message['btree_address'])
+        heap = Heap(self.fh, symbol_table_message['heap_address'])
+        links = {}
+        for symbol_table_address in btree.symbol_table_addresses():
+            table = SymbolTable(self.fh, symbol_table_address)
+            table.assign_name(heap)
+            links.update(table.get_links())
+        return links
 
-    def get_links(self):
-        """ Return the """
+    def _get_links_from_link_msgs(self):
+        """ Retrieve links from link messages. """
         links = {}
         link_msgs = self.find_msg_type(LINK_MSG_TYPE)
         for link_msg in link_msgs:
@@ -432,22 +434,12 @@ class DataObjects(object):
 
             address = struct.unpack_from('<Q', self.msg_data, offset)[0]
             links[name] = address
+        return links
 
-        # sort links into groups and datasets
-        # TODO find a more efficient method for sorting links
-        group_offsets = {}
-        dataset_offsets = {}
-        for link_name, address in links.items():
-            dataobjects = DataObjects(self.fh, address)
-            dspace_msgs = dataobjects.find_msg_type(DATASPACE_MSG_TYPE)
-            if len(dspace_msgs):
-                # link is to dataset
-                dataset_offsets[link_name] = address
-            else:
-                # link is to group
-                group_offsets[link_name] = address
-
-        return dataset_offsets, group_offsets
+    @property
+    def is_dataset(self):
+        """ True when DataObjects points to a dataset, False for a group. """
+        return len(self.find_msg_type(DATASPACE_MSG_TYPE)) > 0
 
 
 def determine_data_shape(buf, offset):
