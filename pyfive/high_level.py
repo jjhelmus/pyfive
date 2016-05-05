@@ -4,6 +4,8 @@
 from io import open
 from collections import Mapping
 
+import numpy as np
+
 from .low_level import SuperBlock, DataObjects
 
 
@@ -173,15 +175,18 @@ class Dataset(object):
 
     @property
     def shape(self):
-        return self._dataobjects.get_data().shape
+        """ NumPy-style shape tuple giving dataset dimensions. """
+        return self._dataobjects.shape
 
     @property
     def dtype(self):
-        return self._dataobjects.get_data().dtype
+        """ NumPy-style dtype object giving the datasets type. """
+        return self._dataobjects.dtype
 
     @property
     def size(self):
-        return self._dataobjects.get_data().size
+        """ Integer giving the total number of elements in the dataset. """
+        return np.prod(self.shape)
 
     @property
     def chunks(self):

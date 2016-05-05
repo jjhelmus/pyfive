@@ -351,20 +351,24 @@ class DataObjects(object):
                 self.msg_data, dtype=dtype, count=1, offset=offset)[0]
         return name, value
 
+    @property
+    def shape(self):
+        """ Shape of the dataset. """
+        msg = self.find_msg_type(DATASPACE_MSG_TYPE)[0]
+        msg_offset = msg['offset_to_message']
+        return determine_data_shape(self.msg_data, msg_offset)
+
+    @property
+    def dtype(self):
+        """ Datatype of the dataset. """
+        msg = self.find_msg_type(DATATYPE_MSG_TYPE)[0]
+        msg_offset = msg['offset_to_message']
+        return determine_dtype(self.msg_data, msg_offset)
+
     def get_data(self):
         """ Return the data pointed to in the DataObject. """
 
-        # shape from dataspace message
-        msg = self.find_msg_type(DATASPACE_MSG_TYPE)[0]
-        msg_offset = msg['offset_to_message']
-        shape = determine_data_shape(self.msg_data, msg_offset)
-
-        # dtype from datatype message
-        msg = self.find_msg_type(DATATYPE_MSG_TYPE)[0]
-        msg_offset = msg['offset_to_message']
-        dtype = determine_dtype(self.msg_data, msg_offset)
-
-        # offset from data storage message
+        # offset and size from data storage message
         msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
         msg_offset = msg['offset_to_message']
         version, layout_class, data_offset, size = struct.unpack_from(
@@ -373,11 +377,11 @@ class DataObjects(object):
         assert layout_class == 1
         if data_offset == UNDEFINED_ADDRESS:
             # no storage is backing array, return all zeros
-            return np.zeros(shape, dtype=dtype)
+            return np.zeros(self.shape, dtype=self.dtype)
 
-        self.fh.seek(data_offset)
-        buf = self.fh.read(size)
-        return np.frombuffer(buf, dtype=dtype).reshape(shape)
+        # return a memory-map to the stored array with copy-on-write
+        return np.memmap(self.fh, dtype=self.dtype, mode='c',
+                         offset=data_offset, shape=self.shape, order='C')
 
     def find_msg_type(self, msg_type):
         """ Return a list of all messages of a given type. """
