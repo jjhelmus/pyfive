@@ -1,8 +1,7 @@
 """ High-level classes for reading HDF5 files.  """
 
-# Requires in Python 2.7 for open to return a BufferedReader
-from io import open
 from collections import Mapping
+from io import open     # Python 2.7 requires for a Buffered Reader
 
 import numpy as np
 
@@ -15,14 +14,14 @@ class Group(Mapping):
 
     Attributes
     ----------
-    * name : str
-        Name of this group
-    * attrs : dict
-        Dictionary of attributes for this group.
-    * datasets : dict
-        Datasets which belong to this group.
-    * groups : dict
-        Groups which are sub-groups of this group.
+    attrs : dict
+        Attributes for this group.
+    name : str
+        Full path to this group.
+    file : File
+        File instance where this group resides.
+    parent : Group
+        Group instance containing this group.
 
     """
 
@@ -93,7 +92,7 @@ class Group(Mapping):
 
     @property
     def attrs(self):
-        """ Dictionary of attribute in the group. """
+        """ attrs attribute. """
         if self._attrs is None:
             self._attrs = self._dataobjects.get_attributes()
         return self._attrs
@@ -103,13 +102,22 @@ class File(Group):
     """
     Open a HDF5 file.
 
-    Note in addition to having file specific methods the HDF5File object also
+    Note in addition to having file specific methods the File object also
     inherit the full interface of **Group**.
 
     Parameters
     ----------
     filename : str
         Name of file (string or unicode).
+
+    Attributes
+    ----------
+    filename : str
+        Name of the file on disk.
+    mode : str
+        String indicating that the file is open readonly ("r").
+    userblock_size : int
+        Size of the user block in bytes (currently always 0).
 
     """
 
@@ -133,22 +141,48 @@ class File(Group):
 
 class Dataset(object):
     """
-    A HDF5 Dataset containing an n-dimensional array and associated meta-data
-    stored as attributes
+    A HDF5 Dataset containing an n-dimensional array and meta-data attributes.
 
     Attributes
     ----------
-    * name : str
-        Name of dataset
-    * attrs : dict
-        Dictionary of attributes associated with the dataset
-    * data : ndarray
-        NumPy array containing the datasets data.
+    shape : tuple
+        Dataset dimensions.
+    dtype : dtype
+        Dataset's type.
+    size : int
+        Total number of elements in the dataset.
+    chunks : tuple or None
+        Chunk shape, or NOne is chunked storage not used.
+    compression : str or None
+        Compression filter used on dataset.  None if compression is not enabled
+        for this dataset.
+    compression_opts : dict or None
+        Options for the compression filter.
+    scaleoffset : dict or None
+        Setting for the HDF5 scale-offset filter, or None if scale-offset
+        compression is not used for this dataset.
+    shuffle : bool
+        Whether the shuffle filter is applied for this dataset.
+    fletcher32 : bool
+        Whether the Fletcher32 checksumming is enabled for this dataset.
+    fillvalue : float or None
+        Value indicating uninitialized portions of the dataset. None is no fill
+        values has been defined.
+    dims : None
+        Dimension scales.
+    attrs : dict
+        Attributes for this dataset.
+    name : str
+        Full path to this dataset.
+    file : File
+        File instance where this dataset resides.
+    parent : Group
+        Group instance containing this dataset.
 
     """
 
     def __init__(self, name, dataobjects, parent):
-        """ initalize with fh position at the Data Object Header. """
+        """ initalize. """
         self.parent = parent
         self.file = parent.file
         self.name = name
@@ -175,54 +209,62 @@ class Dataset(object):
 
     @property
     def shape(self):
-        """ NumPy-style shape tuple giving dataset dimensions. """
+        """ shape attribute. """
         return self._dataobjects.shape
 
     @property
     def dtype(self):
-        """ NumPy-style dtype object giving the datasets type. """
+        """ dtype attribute. """
         return self._dataobjects.dtype
 
     @property
     def size(self):
-        """ Integer giving the total number of elements in the dataset. """
+        """ size attribute. """
         return np.prod(self.shape)
 
     @property
     def chunks(self):
+        """ chunks attribute. """
         return None  # TODO support chunks
 
     @property
     def compression(self):
+        """ compression attribute. """
         return None  # TODO support compression
 
     @property
     def compression_opts(self):
+        """ compression_opts attribute. """
         return None  # TODO support compression
 
     @property
     def scaleoffset(self):
+        """ scaleoffset attribute. """
         return None  # TODO support scale-offset filter
 
     @property
     def shuffle(self):
+        """ shuffle attribute. """
         return False  # TODO support shuffle filter
 
     @property
     def fletcher32(self):
+        """ fletcher32 attribute. """
         return False  # TODO support fletcher32 checksumming
 
     @property
     def fillvalue(self):
+        """ fillvalue attribute. """
         raise NotImplementedError
 
     @property
     def dims(self):
+        """ dims attribute. """
         raise NotImplementedError
 
     @property
     def attrs(self):
-        """ Dictionary of attribute associated with the dataset. """
+        """ attrs attribute. """
         if self._attrs is None:
             self._attrs = self._dataobjects.get_attributes()
         return self._attrs

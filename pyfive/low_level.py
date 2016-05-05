@@ -1,9 +1,9 @@
-""" low-level classes for reading HDF5 files.  """
+""" Low-level classes for reading HDF5 files.  """
 
 from __future__ import division
 
-import struct
 from collections import OrderedDict
+import struct
 import warnings
 
 import numpy as np
@@ -16,7 +16,7 @@ class InvalidHDF5File(Exception):
 
 class SuperBlock(object):
     """
-    HDF5 Superblock instance.
+    HDF5 Superblock.
     """
 
     def __init__(self, fh, offset):
@@ -58,7 +58,7 @@ class SuperBlock(object):
 
 class BTree(object):
     """
-    HDF5 B-Tree instance.
+    HDF5 version 1 B-Tree.
     """
 
     def __init__(self, fh, offset):
@@ -92,7 +92,7 @@ class BTree(object):
 
 class Heap(object):
     """
-    HDF5 local heap instance.
+    HDF5 local heap.
     """
 
     def __init__(self, fh, offset):
@@ -116,7 +116,7 @@ class Heap(object):
 
 class SymbolTable(object):
     """
-    HDF5 Symbol Table instance.
+    HDF5 Symbol Table.
     """
 
     def __init__(self, fh, offset, root=False):
@@ -153,7 +153,7 @@ class SymbolTable(object):
 
 class GlobalHeap(object):
     """
-    HDF5 Global Heap collection instance.
+    HDF5 Global Heap collection.
     """
 
     def __init__(self, fh, offset):
@@ -191,7 +191,7 @@ class GlobalHeap(object):
 
 class DataObjects(object):
     """
-    HDF5 DataObjects instance.
+    HDF5 DataObjects.
     """
 
     def __init__(self, fh, offset):
