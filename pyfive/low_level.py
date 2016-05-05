@@ -30,7 +30,7 @@ class SuperBlock(object):
             contents = _unpack_struct_from_file(SUPERBLOCK_V2, fh)
         else:
             raise NotImplementedError(
-                "unsupported superblock version: %i" % (version))
+                "unsupported superblock version: %i" % (version_hint))
 
         # verify contents
         if contents['format_signature'] != FORMAT_SIGNATURE:
@@ -40,10 +40,12 @@ class SuperBlock(object):
         self.version = contents['superblock_version']
         self._contents = contents
         self._offset = fh.tell()
+        self._root_symbol_table = None
         self._fh = fh
 
     @property
     def offset_to_dataobjects(self):
+        """ The offset to the data objects collection for the superblock. """
         if self.version == 0:
             sym_table = SymbolTable(self._fh, self._offset, root=True)
             self._root_symbol_table = sym_table
@@ -197,81 +199,96 @@ class DataObjects(object):
         fh.seek(offset)
         version_hint = struct.unpack_from('<B', fh.peek(1))[0]
         if version_hint == 1:
-            header = _unpack_struct_from_file(OBJECT_HEADER_V1, fh)
-            assert header['version'] == 1
-            message_data = fh.read(header['object_header_size'])
-
-            offset = 0
-            messages = []
-            for _ in range(header['total_header_messages']):
-                info = _unpack_struct_from(
-                    HEADER_MESSAGE_INFO_V1, message_data, offset)
-                info['offset_to_message'] = offset + 8
-                if info['type'] == OBJECT_CONTINUATION_MSG_TYPE:
-                    fh_offset, size = struct.unpack_from(
-                        '<QQ', message_data, offset + 8)
-                    fh.seek(fh_offset)
-                    message_data += fh.read(size)
-                messages.append(info)
-                offset += 8 + info['size']
-
-        elif version_hint == ord('O'):   # first character of OHDR signanature
-            header = _unpack_struct_from_file(OBJECT_HEADER_V2, fh)
-            assert header['version'] == 2
-            if header['flags'] & 2**2:
-                creation_order_size = 2
-            else:
-                creation_order_size = 0
-            assert (header['flags'] & 2**4) == 0
-            if header['flags'] & 2**5:
-                times = struct.unpack('<4I', fh.read(16))
-                header['access_time'] = times[0]
-                header['modification_time'] = times[1]
-                header['change_time'] = times[2]
-                header['birth_time'] = times[3]
-            chunk_fmt = ['<B', '<H', '<I', '<Q'][(header['flags'] & 3)]
-            header['size_of_chunk_0'] = struct.unpack(
-                chunk_fmt, fh.read(struct.calcsize(chunk_fmt)))[0]
-            message_data = fh.read(header['size_of_chunk_0'])
-
-            chunk_sizes = [header['size_of_chunk_0']]
-            current_chunk = 0
-            size_of_processed_chunks = 0
-
-            offset = 0
-            messages = []
-            while offset < (len(message_data) - 4):
-                info = _unpack_struct_from(
-                    HEADER_MESSAGE_INFO_V2, message_data, offset)
-                info['offset_to_message'] = offset + 4 + creation_order_size
-                if info['type'] == OBJECT_CONTINUATION_MSG_TYPE:
-                    fh_offset, size = struct.unpack_from(
-                        '<QQ', message_data, offset + 4 + creation_order_size)
-                    fh.seek(fh_offset)
-                    new_msg_data = fh.read(size)
-                    assert new_msg_data[:4] == b'OCHK'
-                    chunk_sizes.append(size-4)
-                    message_data += new_msg_data[4:]
-                messages.append(info)
-                offset += 4 + info['size'] + creation_order_size
-
-                chunk_offset = offset - size_of_processed_chunks
-                if (chunk_offset + 4) >= chunk_sizes[current_chunk]:
-                    # move to next chunk
-                    current_chunk_size = chunk_sizes[current_chunk]
-                    gap = current_chunk_size - chunk_offset
-                    offset += gap
-
-                    size_of_processed_chunks += current_chunk_size
-                    current_chunk += 1
+            msgs, msg_data, header = self._parse_v1_objects(fh)
+        elif version_hint == ord('O'):   # first character of v2 signature
+            msgs, msg_data, header = self._parse_v2_objects(fh)
         else:
             raise InvalidHDF5File('unknown Data Object Header')
 
-        self.msgs = messages
-        self.msg_data = message_data
+        self.fh = fh
+        self.msgs = msgs
+        self.msg_data = msg_data
         self._global_heaps = {}
         self._header = header
-        self.fh = fh
+
+    @staticmethod
+    def _parse_v1_objects(fh):
+        """ Parse a collection of version 1 Data Objects. """
+        header = _unpack_struct_from_file(OBJECT_HEADER_V1, fh)
+        assert header['version'] == 1
+        msg_data = fh.read(header['object_header_size'])
+
+        offset = 0
+        msgs = []
+        for _ in range(header['total_header_messages']):
+            msg = _unpack_struct_from(HEADER_MSG_INFO_V1, msg_data, offset)
+            msg['offset_to_message'] = offset + 8
+            if msg['type'] == OBJECT_CONTINUATION_MSG_TYPE:
+                fh_off, size = struct.unpack_from('<QQ', msg_data, offset + 8)
+                fh.seek(fh_off)
+                msg_data += fh.read(size)
+            msgs.append(msg)
+            offset += 8 + msg['size']
+        return msgs, msg_data, header
+
+    def _parse_v2_objects(self, fh):
+        """ Parse a collection of version 2 Data Objects. """
+
+        header, creation_order_size = self._parse_v2_header(fh)
+
+        msgs = []
+        msg_data = fh.read(header['size_of_chunk_0'])
+        offset = 0
+        chunk_sizes = [header['size_of_chunk_0']]
+        current_chunk = 0
+        size_of_processed_chunks = 0
+
+        while offset < (len(msg_data) - 4):
+            msg = _unpack_struct_from(HEADER_MSG_INFO_V2, msg_data, offset)
+            msg['offset_to_message'] = offset + 4 + creation_order_size
+
+            if msg['type'] == OBJECT_CONTINUATION_MSG_TYPE:
+                fh_off, size = struct.unpack_from(
+                    '<QQ', msg_data, offset + 4 + creation_order_size)
+                fh.seek(fh_off)
+                new_msg_data = fh.read(size)
+                assert new_msg_data[:4] == b'OCHK'
+                chunk_sizes.append(size-4)
+                msg_data += new_msg_data[4:]
+
+            msgs.append(msg)
+            offset += 4 + msg['size'] + creation_order_size
+
+            chunk_offset = offset - size_of_processed_chunks
+            if (chunk_offset + 4) >= chunk_sizes[current_chunk]:
+                # move to next chunk
+                current_chunk_size = chunk_sizes[current_chunk]
+                offset += (current_chunk_size - chunk_offset)
+                size_of_processed_chunks += current_chunk_size
+                current_chunk += 1
+
+        return msgs, msg_data, header
+
+    @staticmethod
+    def _parse_v2_header(fh):
+        """ Parse a version 2 data object header. """
+        header = _unpack_struct_from_file(OBJECT_HEADER_V2, fh)
+        assert header['version'] == 2
+        if header['flags'] & 2**2:
+            creation_order_size = 2
+        else:
+            creation_order_size = 0
+        assert (header['flags'] & 2**4) == 0
+        if header['flags'] & 2**5:
+            times = struct.unpack('<4I', fh.read(16))
+            header['access_time'] = times[0]
+            header['modification_time'] = times[1]
+            header['change_time'] = times[2]
+            header['birth_time'] = times[3]
+        chunk_fmt = ['<B', '<H', '<I', '<Q'][(header['flags'] & 3)]
+        header['size_of_chunk_0'] = struct.unpack(
+            chunk_fmt, fh.read(struct.calcsize(chunk_fmt)))[0]
+        return header, creation_order_size
 
     def get_attributes(self):
         """ Return a dictionary of all attributes. """
@@ -288,24 +305,19 @@ class DataObjects(object):
     def unpack_attribute(self, offset):
         """ Return the attribute name and value. """
 
+        # read in the attribute message header
         version = struct.unpack_from('<B', self.msg_data, offset)[0]
         if version == 1:
             attr_dict = _unpack_struct_from(
-                ATTRIBUTE_MESSAGE_HEADER_V1, self.msg_data, offset)
+                ATTR_MSG_HEADER_V1, self.msg_data, offset)
             assert attr_dict['version'] == 1
-            encoding = 'ascii'
-            offset += ATTRIBUTE_MESSAGE_HEADER_V1_SIZE
+            offset += ATTR_MSG_HEADER_V1_SIZE
             padding_multiple = 8
-
         elif version == 3:
             attr_dict = _unpack_struct_from(
-                ATTRIBUTE_MESSAGE_HEADER_V3, self.msg_data, offset)
+                ATTR_MSG_HEADER_V3, self.msg_data, offset)
             assert attr_dict['version'] == 3
-            offset += ATTRIBUTE_MESSAGE_HEADER_V3_SIZE
-            if attr_dict['character_set_encoding'] == 0:
-                encoding = 'ascii'
-            else:
-                encoding = 'utf-8'  # this is not always set
+            offset += ATTR_MSG_HEADER_V3_SIZE
             padding_multiple = 1    # no padding
         else:
             raise NotImplementedError(
@@ -314,7 +326,7 @@ class DataObjects(object):
         # read in the attribute name
         name_size = attr_dict['name_size']
         name = self.msg_data[offset:offset+name_size]
-        name = name.strip(b'\x00').decode(encoding)
+        name = name.strip(b'\x00').decode('utf-8')
         offset += _padded_size(name_size, padding_multiple)
 
         # read in the datatype information
@@ -327,29 +339,33 @@ class DataObjects(object):
         offset += _padded_size(attr_dict['datatype_size'], padding_multiple)
 
         # read in the dataspace information
-        dataspace_size = attr_dict['dataspace_size']
-        attr_dict['dataspace'] = self.msg_data[offset:offset+dataspace_size]
-        offset += _padded_size(dataspace_size, padding_multiple)
+        offset += _padded_size(attr_dict['dataspace_size'], padding_multiple)
 
+        # read in the value
         if isinstance(dtype, tuple):
-            vlen_type, padding_type, character_set = dtype
-            vlen_size, gheap_address, gheap_index = struct.unpack_from(
-                '<IQI', self.msg_data, offset)
-            if gheap_address not in self._global_heaps:
-                # load the global heap and cache the instance
-                gheap = GlobalHeap(self.fh, gheap_address)
-                self._global_heaps[gheap_address] = gheap
-            gheap = self._global_heaps[gheap_address]
-            value = gheap.objects[gheap_index]
-            if character_set == 0:
-                # ascii character set, return as bytes
-                value = value
-            else:
-                value = value.decode('utf-8')
+            value = self._vlen_attr_value(offset, dtype)
         else:
             value = np.frombuffer(
                 self.msg_data, dtype=dtype, count=1, offset=offset)[0]
         return name, value
+
+    def _vlen_attr_value(self, offset, info):
+        """ Return the value of a variable length attribute. """
+        vlen_type, padding_type, character_set = info
+        vlen_size, gheap_address, gheap_index = struct.unpack_from(
+            '<IQI', self.msg_data, offset)
+        if gheap_address not in self._global_heaps:
+            # load the global heap and cache the instance
+            gheap = GlobalHeap(self.fh, gheap_address)
+            self._global_heaps[gheap_address] = gheap
+        gheap = self._global_heaps[gheap_address]
+        value = gheap.objects[gheap_index]
+        if character_set == 0:
+            # ascii character set, return as bytes
+            value = value
+        else:
+            value = value.decode('utf-8')
+        return value
 
     @property
     def shape(self):
@@ -400,7 +416,7 @@ class DataObjects(object):
         assert len(sym_tbl_msgs) == 1
         assert sym_tbl_msgs[0]['size'] == 16
         symbol_table_message = _unpack_struct_from(
-            SYMBOL_TABLE_MESSAGE, self.msg_data,
+            SYMBOL_TABLE_MSG, self.msg_data,
             sym_tbl_msgs[0]['offset_to_message'])
 
         btree = BTree(self.fh, symbol_table_message['btree_address'])
@@ -471,84 +487,89 @@ def determine_dtype(buf, offset):
     """
     Return the numpy dtype from a buffer pointing to a Datatype message.
     """
-    datatype_msg = _unpack_struct_from(DATATYPE_MESSAGE, buf, offset)
-    datatype_version = datatype_msg['class_and_version'] >> 4  # first 4 bits
+    datatype_msg = _unpack_struct_from(DATATYPE_MSG, buf, offset)
     datatype_class = datatype_msg['class_and_version'] & 0x0F  # last 4 bits
 
     if datatype_class == DATATYPE_FIXED_POINT:
-        # fixed-point types are assumed to follow IEEE standard format
-        length_in_bytes = datatype_msg['size']
-        if length_in_bytes not in [1, 2, 4, 8]:
-            raise NotImplementedError("Unsupported datatype size")
-
-        signed = datatype_msg['class_bit_field_0'] & 0x08
-        if signed > 0:
-            dtype_char = 'i'
-        else:
-            dtype_char = 'u'
-
-        byte_order = datatype_msg['class_bit_field_0'] & 0x01
-        if byte_order == 0:
-            byte_order_char = '<'  # little-endian
-        else:
-            byte_order_char = '>'  # big-endian
-
-        return byte_order_char + dtype_char + str(length_in_bytes)
-
+        return _determine_dtype_fixed_point(datatype_msg)
     elif datatype_class == DATATYPE_FLOATING_POINT:
-        # Floating point types are assumed to follow IEEE standard formats
-        length_in_bytes = datatype_msg['size']
-        if length_in_bytes not in [1, 2, 4, 8]:
-            raise NotImplementedError("Unsupported datatype size")
-
-        dtype_char = 'f'
-
-        byte_order = datatype_msg['class_bit_field_0'] & 0x01
-        if byte_order == 0:
-            byte_order_char = '<'  # little-endian
-        else:
-            byte_order_char = '>'  # big-endian
-
-        return byte_order_char + dtype_char + str(length_in_bytes)
-
+        return _determine_dtype_floating_point(datatype_msg)
     elif datatype_class == DATATYPE_TIME:
         raise NotImplementedError("Time datatype class not supported.")
-
     elif datatype_class == DATATYPE_STRING:
-        character_set = datatype_msg['class_bit_field_0'] & 0x0F
-        # When zero this indicates a ASCII character set but I cannot
-        # figure out how to generate a file of this type.
-        return 'S' + str(datatype_msg['size'])
-
+        return _determine_dtype_string(datatype_msg)
     elif datatype_class == DATATYPE_BITFIELD:
         raise NotImplementedError("Bitfield datatype class not supported.")
-
     elif datatype_class == DATATYPE_OPAQUE:
         raise NotImplementedError("Opaque datatype class not supported.")
-
     elif datatype_class == DATATYPE_COMPOUND:
         raise NotImplementedError("Compound datatype class not supported.")
-
     elif datatype_class == DATATYPE_REFERENCE:
         raise NotImplementedError("Reference datatype class not supported.")
-
     elif datatype_class == DATATYPE_ENUMERATED:
         raise NotImplementedError("Enumerated datatype class not supported.")
-
     elif datatype_class == DATATYPE_ARRAY:
         raise NotImplementedError("Array datatype class not supported.")
-
     elif datatype_class == DATATYPE_VARIABLE_LENGTH:
-        vlen_type = datatype_msg['class_bit_field_0'] & 0x01
-        if vlen_type != 1:
-            raise NotImplementedError(
-                "Non-string variable length datatypes not supported.")
-        padding_type = datatype_msg['class_bit_field_0'] >> 4  # bits 4-7
-        character_set = datatype_msg['class_bit_field_1'] & 0x01
-        return ('VLEN_STRING', padding_type, character_set)
-
+        return _determine_dtype_vlen(datatype_msg)
     else:
         raise InvalidHDF5File('Invalid datatype class %i' % (datatype_class))
+
+
+def _determine_dtype_fixed_point(datatype_msg):
+    """ Return the NumPy dtype for a fixed point class. """
+    # fixed-point types are assumed to follow IEEE standard format
+    length_in_bytes = datatype_msg['size']
+    if length_in_bytes not in [1, 2, 4, 8]:
+        raise NotImplementedError("Unsupported datatype size")
+
+    signed = datatype_msg['class_bit_field_0'] & 0x08
+    if signed > 0:
+        dtype_char = 'i'
+    else:
+        dtype_char = 'u'
+
+    byte_order = datatype_msg['class_bit_field_0'] & 0x01
+    if byte_order == 0:
+        byte_order_char = '<'  # little-endian
+    else:
+        byte_order_char = '>'  # big-endian
+
+    return byte_order_char + dtype_char + str(length_in_bytes)
+
+
+def _determine_dtype_floating_point(datatype_msg):
+    """ Return the NumPy dtype for a floating point class. """
+    # Floating point types are assumed to follow IEEE standard formats
+    length_in_bytes = datatype_msg['size']
+    if length_in_bytes not in [1, 2, 4, 8]:
+        raise NotImplementedError("Unsupported datatype size")
+
+    dtype_char = 'f'
+
+    byte_order = datatype_msg['class_bit_field_0'] & 0x01
+    if byte_order == 0:
+        byte_order_char = '<'  # little-endian
+    else:
+        byte_order_char = '>'  # big-endian
+
+    return byte_order_char + dtype_char + str(length_in_bytes)
+
+
+def _determine_dtype_string(datatype_msg):
+    """ Return the NumPy dtype for a string class. """
+    return 'S' + str(datatype_msg['size'])
+
+
+def _determine_dtype_vlen(datatype_msg):
+    """ Return the dtype information for a variable length class. """
+    vlen_type = datatype_msg['class_bit_field_0'] & 0x01
+    if vlen_type != 1:
+        raise NotImplementedError(
+            "Non-string variable length datatypes not supported.")
+    padding_type = datatype_msg['class_bit_field_0'] >> 4  # bits 4-7
+    character_set = datatype_msg['class_bit_field_1'] & 0x01
+    return ('VLEN_STRING', padding_type, character_set)
 
 
 def _padded_size(size, padding_multipe=8):
@@ -656,16 +677,16 @@ SYMBOL_TABLE_ENTRY = OrderedDict((
 ))
 
 # IV.A.2.m The Attribute Message
-ATTRIBUTE_MESSAGE_HEADER_V1 = OrderedDict((
+ATTR_MSG_HEADER_V1 = OrderedDict((
     ('version', 'B'),
     ('reserved', 'B'),
     ('name_size', 'H'),
     ('datatype_size', 'H'),
     ('dataspace_size', 'H'),
 ))
-ATTRIBUTE_MESSAGE_HEADER_V1_SIZE = _structure_size(ATTRIBUTE_MESSAGE_HEADER_V1)
+ATTR_MSG_HEADER_V1_SIZE = _structure_size(ATTR_MSG_HEADER_V1)
 
-ATTRIBUTE_MESSAGE_HEADER_V3 = OrderedDict((
+ATTR_MSG_HEADER_V3 = OrderedDict((
     ('version', 'B'),
     ('flags', 'B'),
     ('name_size', 'H'),
@@ -673,7 +694,7 @@ ATTRIBUTE_MESSAGE_HEADER_V3 = OrderedDict((
     ('dataspace_size', 'H'),
     ('character_set_encoding', 'B'),
 ))
-ATTRIBUTE_MESSAGE_HEADER_V3_SIZE = _structure_size(ATTRIBUTE_MESSAGE_HEADER_V3)
+ATTR_MSG_HEADER_V3_SIZE = _structure_size(ATTR_MSG_HEADER_V3)
 
 # III.D Disk Format: Level 1D - Local Heaps
 LOCAL_HEAP = OrderedDict((
@@ -749,7 +770,7 @@ DATASPACE_MSG_HEADER_V2_SIZE = _structure_size(DATASPACE_MSG_HEADER_V2)
 
 # IV.A.2.d The Datatype Message
 
-DATATYPE_MESSAGE = OrderedDict((
+DATATYPE_MSG = OrderedDict((
     ('class_and_version', 'B'),
     ('class_bit_field_0', 'B'),
     ('class_bit_field_1', 'B'),
@@ -758,7 +779,7 @@ DATATYPE_MESSAGE = OrderedDict((
 ))
 
 #
-HEADER_MESSAGE_INFO_V1 = OrderedDict((
+HEADER_MSG_INFO_V1 = OrderedDict((
     ('type', 'H'),
     ('size', 'H'),
     ('flags', 'B'),
@@ -766,14 +787,14 @@ HEADER_MESSAGE_INFO_V1 = OrderedDict((
 ))
 
 
-HEADER_MESSAGE_INFO_V2 = OrderedDict((
+HEADER_MSG_INFO_V2 = OrderedDict((
     ('type', 'B'),
     ('size', 'H'),
     ('flags', 'B'),
 ))
 
 
-SYMBOL_TABLE_MESSAGE = OrderedDict((
+SYMBOL_TABLE_MSG = OrderedDict((
     ('btree_address', 'Q'),     # 8 bytes addressing
     ('heap_address', 'Q'),      # 8 byte addressing
 ))
@@ -796,7 +817,7 @@ DATA_STORAGE_FILTER_PIPELINE_MSG_TYPE = 0x000B
 ATTRIBUTE_MSG_TYPE = 0x000C
 OBJECT_COMMENT_MSG_TYPE = 0x000D
 OBJECT_MODIFICATION_TIME_OLD_MSG_TYPE = 0x000E
-SHARED_MESSAGE_TABLE_MSG_TYPE = 0x000F
+SHARED_MSG_TABLE_MSG_TYPE = 0x000F
 OBJECT_CONTINUATION_MSG_TYPE = 0x0010
 SYMBOL_TABLE_MSG_TYPE = 0x0011
 OBJECT_MODIFICATION_TIME_MSG_TYPE = 0x0012
