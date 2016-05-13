@@ -90,6 +90,81 @@ class BTree(object):
         return all_address
 
 
+class BTreeRawDataChunks(object):
+    """
+    HDF5 version 1 B-Tree storing raw data chunk nodes (type 1).
+    """
+
+    def __init__(self, fh, offset, dims):
+        """ initalize. """
+        self.fh = fh
+        self.dims = dims
+
+        # read in the root node
+        root_node = self._read_node(offset)
+        self.root_node = root_node
+
+        # read in all other nodes
+        all_nodes = {}
+        node_level = root_node['node_level']
+        all_nodes[node_level] = [root_node]
+        while node_level != 0:
+            new_nodes = []
+            for parent_node in all_nodes[node_level]:
+                for addr in parent_node['addresses']:
+                    new_nodes.append(self._read_node(addr))
+            new_node_level = new_nodes[0]['node_level']
+            all_nodes[new_node_level] = new_nodes
+            node_level = new_node_level
+
+        self.all_nodes = all_nodes
+
+    def _read_node(self, offset):
+        """ Return a single node in the b-tree located at a give offset. """
+        self.fh.seek(offset)
+        node = _unpack_struct_from_file(B_LINK_NODE_V1, self.fh)
+        assert node['signature'] == b'TREE'
+        assert node['node_type'] == 1
+
+        keys = []
+        addresses = []
+        for _ in range(node['entries_used']):
+            chunk_size, filter_mask = struct.unpack('<II', self.fh.read(8))
+            fmt = '<' + 'Q' * self.dims
+            fmt_size = struct.calcsize(fmt)
+            chunk_offset = struct.unpack(fmt, self.fh.read(fmt_size))
+            chunk_address = struct.unpack('<Q', self.fh.read(8))[0]
+
+            keys.append(OrderedDict((
+                ('chunk_size', chunk_size),
+                ('filter_mask', filter_mask),
+                ('chunk_offset', chunk_offset),
+            )))
+            addresses.append(chunk_address)
+        node['keys'] = keys
+        node['addresses'] = addresses
+        return node
+
+    def construct_data_from_chunks(self, chunk_shape, data_shape, dtype):
+        """ Build a complete data array from chunks. """
+        # create array to store data
+        shape = [_padded_size(i, j) for i, j in zip(data_shape, chunk_shape)]
+        data = np.zeros(shape, dtype=dtype)
+
+        # loop over chunks reading each into the full data array
+        count = np.prod(chunk_shape)
+        for node in self.all_nodes[0]:
+            for node_key, addr in zip(node['keys'], node['addresses']):
+                self.fh.seek(addr)
+                chunk_data = np.fromfile(self.fh, dtype=dtype, count=count)
+                start = node_key['chunk_offset'][:-1]
+                region = [slice(i, i+j) for i, j in zip(start, chunk_shape)]
+                data[region] = chunk_data.reshape(chunk_shape)
+
+        non_padded_region = [slice(i) for i in data_shape]
+        return data[non_padded_region]
+
+
 class Heap(object):
     """
     HDF5 local heap.
@@ -387,10 +462,16 @@ class DataObjects(object):
         # offset and size from data storage message
         msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
         msg_offset = msg['offset_to_message']
-        version, layout_class, data_offset, size = struct.unpack_from(
-            '<BBQQ', self.msg_data, msg_offset)
+        version, layout_class = struct.unpack_from(
+            '<BB', self.msg_data, msg_offset)
         assert version == 3
+
+        if layout_class == 2:  # chunked storage
+            return self._get_chunked_data(msg_offset)
+
         assert layout_class == 1
+        data_offset, size = struct.unpack_from(
+                '<QQ', self.msg_data, msg_offset+2)
         if data_offset == UNDEFINED_ADDRESS:
             # no storage is backing array, return all zeros
             return np.zeros(self.shape, dtype=self.dtype)
@@ -398,6 +479,28 @@ class DataObjects(object):
         # return a memory-map to the stored array with copy-on-write
         return np.memmap(self.fh, dtype=self.dtype, mode='c',
                          offset=data_offset, shape=self.shape, order='C')
+
+    def _get_chunked_data(self, offset):
+        """ Return data which is chunked. """
+        version, layout_class = struct.unpack_from(
+            '<BB', self.msg_data, offset)
+        offset += struct.calcsize('<BB')
+        assert version == 3
+        assert layout_class == 2
+
+        dims, address = struct.unpack_from('<BQ', self.msg_data, offset)
+        offset += struct.calcsize('<BQ')
+
+        fmt = '<' + 'I' * (dims-1)
+        chunk_shape = struct.unpack_from(fmt, self.msg_data, offset)
+        offset += struct.calcsize(fmt)
+
+        element_size = struct.unpack_from('<I', self.msg_data, offset)
+
+        chunk_btree = BTreeRawDataChunks(self.fh, address, dims)
+
+        return chunk_btree.construct_data_from_chunks(
+            chunk_shape, self.shape, self.dtype)
 
     def find_msg_type(self, msg_type):
         """ Return a list of all messages of a given type. """
