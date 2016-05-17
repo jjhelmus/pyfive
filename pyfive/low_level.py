@@ -153,10 +153,12 @@ class BTreeRawDataChunks(object):
 
         # loop over chunks reading each into the full data array
         count = np.prod(chunk_shape)
+        chunk_buffer_size = count * np.dtype(dtype).itemsize
         for node in self.all_nodes[0]:
             for node_key, addr in zip(node['keys'], node['addresses']):
                 self.fh.seek(addr)
-                chunk_data = np.fromfile(self.fh, dtype=dtype, count=count)
+                chunk_buffer = self.fh.read(chunk_buffer_size)
+                chunk_data = np.frombuffer(chunk_buffer, dtype=dtype)
                 start = node_key['chunk_offset'][:-1]
                 region = [slice(i, i+j) for i, j in zip(start, chunk_shape)]
                 data[region] = chunk_data.reshape(chunk_shape)
