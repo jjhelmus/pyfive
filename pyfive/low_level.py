@@ -5,6 +5,7 @@ from __future__ import division
 from collections import OrderedDict
 import struct
 import warnings
+import zlib
 
 import numpy as np
 
@@ -165,7 +166,8 @@ class BTreeRawDataChunks(object):
         node['addresses'] = addresses
         return node
 
-    def construct_data_from_chunks(self, chunk_shape, data_shape, dtype):
+    def construct_data_from_chunks(
+            self, chunk_shape, data_shape, dtype, filter_pipeline):
         """ Build a complete data array from chunks. """
         # create array to store data
         shape = [_padded_size(i, j) for i, j in zip(data_shape, chunk_shape)]
@@ -173,11 +175,19 @@ class BTreeRawDataChunks(object):
 
         # loop over chunks reading each into the full data array
         count = np.prod(chunk_shape)
-        chunk_buffer_size = count * np.dtype(dtype).itemsize
+        itemsize = np.dtype(dtype).itemsize
+        chunk_buffer_size = count * itemsize
         for node in self.all_nodes[0]:
             for node_key, addr in zip(node['keys'], node['addresses']):
                 self.fh.seek(addr)
-                chunk_buffer = self.fh.read(chunk_buffer_size)
+                if filter_pipeline is None:
+                    chunk_buffer = self.fh.read(chunk_buffer_size)
+                else:
+                    chunk_buffer = self.fh.read(node_key['chunk_size'])
+                    filter_mask = node_key['filter_mask']
+                    chunk_buffer = self._filter_chunk(
+                        chunk_buffer, filter_mask, filter_pipeline, itemsize)
+
                 chunk_data = np.frombuffer(chunk_buffer, dtype=dtype)
                 start = node_key['chunk_offset'][:-1]
                 region = [slice(i, i+j) for i, j in zip(start, chunk_shape)]
@@ -185,6 +195,36 @@ class BTreeRawDataChunks(object):
 
         non_padded_region = [slice(i) for i in data_shape]
         return data[non_padded_region]
+
+    def _filter_chunk(
+            self, chunk_buffer, filter_mask, filter_pipeline, itemsize):
+        """ Apply decompression filters to a chunk of data. """
+        num_filters = len(filter_pipeline)
+        for i, pipeline_entry in enumerate(filter_pipeline[::-1]):
+
+            # A filter is skipped is the bit corresponding to its index in the
+            # pipeline is set in filter_mask
+            filter_index = num_filters - i - 1   # 0 to num_filters - 1
+            if filter_mask & (1 << filter_index):
+                continue
+
+            filter_id = pipeline_entry['filter_id']
+            if filter_id == GZIP_DEFLATE_FILTER:
+                chunk_buffer = zlib.decompress(chunk_buffer)
+
+            elif filter_id == SHUFFLE_FILTER:
+                buffer_size = len(chunk_buffer)
+                unshuffled_buffer = bytearray(buffer_size)
+                step = buffer_size // itemsize
+                for i in range(itemsize):
+                    start = i * step
+                    end = (i+1) * step
+                    unshuffled_buffer[i::itemsize] = chunk_buffer[start:end]
+                chunk_buffer = unshuffled_buffer
+            else:
+                raise NotImplementedError(
+                    "Filter with id: %i import supported" % (filter_id))
+        return chunk_buffer
 
 
 class Heap(object):
@@ -519,10 +559,48 @@ class DataObjects(object):
 
         element_size = struct.unpack_from('<I', self.msg_data, offset)
 
+        filter_pipeline = self._get_filter_pipeline()
         chunk_btree = BTreeRawDataChunks(self.fh, address, dims)
 
         return chunk_btree.construct_data_from_chunks(
-            chunk_shape, self.shape, self.dtype)
+            chunk_shape, self.shape, self.dtype, filter_pipeline)
+
+    def _get_filter_pipeline(self):
+        filter_msgs = self.find_msg_type(DATA_STORAGE_FILTER_PIPELINE_MSG_TYPE)
+        if len(filter_msgs) == 0:
+            return None
+
+        offset = filter_msgs[0]['offset_to_message']
+        version, nfilters = struct.unpack_from('<BB', self.msg_data, offset)
+        offset += struct.calcsize('<BB')
+        if version != 1:
+            raise NotImplementedError("only version 1 filters supported. ")
+
+        res0, res1 = struct.unpack_from('<HI', self.msg_data, offset)
+        offset += struct.calcsize('<HI')
+
+        filters = []
+        for _ in range(nfilters):
+            filter_info = _unpack_struct_from(
+                FILTER_PIPELINE_DESCR_V1, self.msg_data, offset)
+            offset += FILTER_PIPELINE_DESCR_V1_SIZE
+
+            padded_name_length = _padded_size(filter_info['name_length'], 8)
+            fmt = '<' + str(padded_name_length) + 's'
+            filter_name = struct.unpack_from(fmt, self.msg_data, offset)[0]
+            filter_info['filter_name'] = filter_name
+            offset += padded_name_length
+
+            fmt = '<' + str(filter_info['client_data_values']) + 'I'
+            client_data = struct.unpack_from(fmt, self.msg_data, offset)
+            filter_info['client_data'] = client_data
+            offset += 4 * filter_info['client_data_values']
+
+            if filter_info['client_data_values'] % 2:
+                offset += 4  # odd number of client data values padded
+
+            filters.append(filter_info)
+        return filters
 
     def find_msg_type(self, msg_type):
         """ Return a list of all messages of a given type. """
@@ -924,6 +1002,22 @@ SYMBOL_TABLE_MSG = OrderedDict((
     ('heap_address', 'Q'),      # 8 byte addressing
 ))
 
+# IV.A.2.l The Data Storage - Filter Pipeline message
+FILTER_PIPELINE_DESCR_V1 = OrderedDict((
+    ('filter_id', 'H'),
+    ('name_length', 'H'),
+    ('flags', 'H'),
+    ('client_data_values', 'H'),
+))
+FILTER_PIPELINE_DESCR_V1_SIZE = _structure_size(FILTER_PIPELINE_DESCR_V1)
+
+RESERVED_FILTER = 0
+GZIP_DEFLATE_FILTER = 1
+SHUFFLE_FILTER = 2
+FLETCH32_FILTER = 3
+SZIP_FILTER = 4
+NBIT_FILTER = 5
+SCALEOFFSET_FILTER = 6
 
 # Data Object Message types
 # Section IV.A.2.a - IV.A.2.x
