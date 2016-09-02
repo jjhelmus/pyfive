@@ -107,8 +107,9 @@ class File(Group):
 
     Parameters
     ----------
-    filename : str
-        Name of file (string or unicode).
+    filename : str or file-like
+        Name of file (string or unicode) or file like object which have read,
+        seek and peek methods which behaved like a Python file object.
 
     Attributes
     ----------
@@ -123,7 +124,13 @@ class File(Group):
 
     def __init__(self, filename):
         """ initalize. """
-        self._fh = open(filename, 'rb')
+        if hasattr(filename, 'read'):
+            if not hasattr(filename, 'seek') or not hasattr(filename, 'peek'):
+                raise ValueError(
+                    'File like object must have a seek and peek method')
+            self._fh = filename
+        else:
+            self._fh = open(filename, 'rb')
         self._superblock = SuperBlock(self._fh, 0)
         offset = self._superblock.offset_to_dataobjects
         dataobjects = DataObjects(self._fh, offset)
