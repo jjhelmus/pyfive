@@ -1,4 +1,6 @@
 """ Unit tests for pyfive using the filelike objects  """
+
+import io
 import os
 
 import numpy as np
@@ -18,7 +20,7 @@ except NameError:
 
 def test_read_latest_fileobj():
 
-    f = open(LATEST_HDF5_FILE, 'rb')
+    f = io.open(LATEST_HDF5_FILE, 'rb')
     hfile = pyfive.File(f)
 
     # root
