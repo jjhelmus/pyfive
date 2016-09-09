@@ -63,29 +63,49 @@ class BTree(object):
 
     def __init__(self, fh, offset):
         """ initalize. """
-        fh.seek(offset)
-        self.nodes = []
-        node = _unpack_struct_from_file(B_LINK_NODE_V1, fh)
+        self.fh = fh
+
+        # read in the root node
+        root_node = self._read_node(offset)
+        self.root_node = root_node
+
+        # read in all nodes
+        all_nodes = {}
+        node_level = root_node['node_level']
+        all_nodes[node_level] = [root_node]
+        while node_level != 0:
+            new_nodes = []
+            for parent_node in all_nodes[node_level]:
+                for addr in parent_node['addresses']:
+                    new_nodes.append(self._read_node(addr))
+            new_node_level = new_nodes[0]['node_level']
+            all_nodes[new_node_level] = new_nodes
+            node_level = new_node_level
+        self.all_nodes = all_nodes
+
+    def _read_node(self, offset):
+        """ Return a single node in the B-Tree located at a given offset. """
+        self.fh.seek(offset)
+        node = _unpack_struct_from_file(B_LINK_NODE_V1, self.fh)
         assert node['signature'] == b'TREE'
 
         keys = []
         addresses = []
         for _ in range(node['entries_used']):
-            key = struct.unpack('<Q', fh.read(8))[0]
-            address = struct.unpack('<Q', fh.read(8))[0]
+            key = struct.unpack('<Q', self.fh.read(8))[0]
+            address = struct.unpack('<Q', self.fh.read(8))[0]
             keys.append(key)
             addresses.append(address)
         # N+1 key
-        keys.append(struct.unpack('<Q', fh.read(8))[0])
+        keys.append(struct.unpack('<Q', self.fh.read(8))[0])
         node['keys'] = keys
         node['addresses'] = addresses
-
-        self.nodes.append(node)
+        return node
 
     def symbol_table_addresses(self):
         """ Return a list of all symbol table address. """
         all_address = []
-        for node in self.nodes:
+        for node in self.all_nodes[0]:
             all_address.extend(node['addresses'])
         return all_address
 
