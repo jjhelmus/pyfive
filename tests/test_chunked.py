@@ -17,5 +17,6 @@ def test_chunked_dataset():
     # check data
     dset1 = hfile['dataset1']
     assert_array_equal(dset1[:], np.arange(21*16).reshape((21, 16)))
+    assert dset1.chunks == (2, 2)
 
     hfile.close()
