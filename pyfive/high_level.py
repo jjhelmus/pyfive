@@ -232,7 +232,7 @@ class Dataset(object):
     @property
     def chunks(self):
         """ chunks attribute. """
-        return None  # TODO support chunks
+        return self._dataobjects.chunks
 
     @property
     def compression(self):

@@ -351,6 +351,10 @@ class DataObjects(object):
 
         # cached attributes
         self._filter_pipeline = None
+        self._chunk_params_set = False
+        self._chunks = None
+        self._chunk_dims = None
+        self._chunk_address = None
 
     @staticmethod
     def _parse_v1_objects(fh):
@@ -523,6 +527,12 @@ class DataObjects(object):
         return determine_dtype(self.msg_data, msg_offset)
 
     @property
+    def chunks(self):
+        """ Tuple describing the chunk size, None if not chunked. """
+        self._get_chunk_params()
+        return self._chunks
+
+    @property
     def compression(self):
         """ str describing compression filter, None if no compression. """
         if self._filter_ids is None:
@@ -630,25 +640,40 @@ class DataObjects(object):
 
     def _get_chunked_data(self, offset):
         """ Return data which is chunked. """
+        self._get_chunk_params()
+        chunk_btree = BTreeRawDataChunks(
+            self.fh, self._chunk_address, self._chunk_dims)
+        return chunk_btree.construct_data_from_chunks(
+            self.chunks, self.shape, self.dtype, self.filter_pipeline)
+
+    def _get_chunk_params(self):
+        """
+        Get and cache chunked data storage parameters.
+
+        This method should be called prior to accessing any _chunk_*
+        attributes. Calling this method multiple times is fine, it will not
+        re-read the parameters.
+        """
+        if self._chunk_params_set:  # parameter have already need retrieved
+            return
+        self._chunk_params_set = True
+        msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
+        offset = msg['offset_to_message']
         version, layout_class = struct.unpack_from(
             '<BB', self.msg_data, offset)
         offset += struct.calcsize('<BB')
         assert version == 3
-        assert layout_class == 2
+        if layout_class != 2:  # not chunked storage
+            return
 
         dims, address = struct.unpack_from('<BQ', self.msg_data, offset)
         offset += struct.calcsize('<BQ')
-
         fmt = '<' + 'I' * (dims-1)
         chunk_shape = struct.unpack_from(fmt, self.msg_data, offset)
-        offset += struct.calcsize(fmt)
-
-        element_size = struct.unpack_from('<I', self.msg_data, offset)
-
-        chunk_btree = BTreeRawDataChunks(self.fh, address, dims)
-
-        return chunk_btree.construct_data_from_chunks(
-            chunk_shape, self.shape, self.dtype, self.filter_pipeline)
+        self._chunks = chunk_shape
+        self._chunk_dims = dims
+        self._chunk_address = address
+        return
 
     def find_msg_type(self, msg_type):
         """ Return a list of all messages of a given type. """
