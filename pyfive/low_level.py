@@ -27,8 +27,10 @@ class SuperBlock(object):
         version_hint = struct.unpack_from('<B', fh.peek(9), 8)[0]
         if version_hint == 0:
             contents = _unpack_struct_from_file(SUPERBLOCK_V0, fh)
+            self._end_of_sblock = offset + SUPERBLOCK_V0_SIZE
         elif version_hint == 2:
             contents = _unpack_struct_from_file(SUPERBLOCK_V2, fh)
+            self._end_of_sblock = offset + SUPERBLOCK_V2_SIZE
         else:
             raise NotImplementedError(
                 "unsupported superblock version: %i" % (version_hint))
@@ -40,7 +42,6 @@ class SuperBlock(object):
             raise NotImplementedError('File uses none 64-bit addressing')
         self.version = contents['superblock_version']
         self._contents = contents
-        self._offset = fh.tell()
         self._root_symbol_table = None
         self._fh = fh
 
@@ -48,7 +49,7 @@ class SuperBlock(object):
     def offset_to_dataobjects(self):
         """ The offset to the data objects collection for the superblock. """
         if self.version == 0:
-            sym_table = SymbolTable(self._fh, self._offset, root=True)
+            sym_table = SymbolTable(self._fh, self._end_of_sblock, root=True)
             self._root_symbol_table = sym_table
             return sym_table.group_offset
         elif self.version == 2:
@@ -880,6 +881,7 @@ SUPERBLOCK_V0 = OrderedDict((
     ('driver_information_address', 'Q'),    # assume 8 byte addressing
 
 ))
+SUPERBLOCK_V0_SIZE = _structure_size(SUPERBLOCK_V0)
 
 # Version 2 SUPERBLOCK
 SUPERBLOCK_V2 = OrderedDict((
@@ -898,6 +900,7 @@ SUPERBLOCK_V2 = OrderedDict((
     ('superblock_checksum', 'I'),
 
 ))
+SUPERBLOCK_V2_SIZE = _structure_size(SUPERBLOCK_V2)
 
 
 B_LINK_NODE_V1 = OrderedDict((
