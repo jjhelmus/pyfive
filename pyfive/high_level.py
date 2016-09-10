@@ -237,12 +237,12 @@ class Dataset(object):
     @property
     def compression(self):
         """ compression attribute. """
-        return None  # TODO support compression
+        return self._dataobjects.compression
 
     @property
     def compression_opts(self):
         """ compression_opts attribute. """
-        return None  # TODO support compression
+        return self._dataobjects.compression_opts
 
     @property
     def scaleoffset(self):
@@ -252,7 +252,7 @@ class Dataset(object):
     @property
     def shuffle(self):
         """ shuffle attribute. """
-        return False  # TODO support shuffle filter
+        return self._dataobjects.shuffle
 
     @property
     def fletcher32(self):
