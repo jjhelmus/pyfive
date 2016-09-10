@@ -348,6 +348,9 @@ class DataObjects(object):
         self._global_heaps = {}
         self._header = header
 
+        # cached attributes
+        self._filter_pipeline = None
+
     @staticmethod
     def _parse_v1_objects(fh):
         """ Parse a collection of version 1 Data Objects. """
@@ -534,8 +537,7 @@ class DataObjects(object):
         if self._filter_ids is None:
             return None
         if GZIP_DEFLATE_FILTER in self._filter_ids:
-            filter_pipeline = self._get_filter_pipeline()
-            gzip_entry = [d for d in filter_pipeline
+            gzip_entry = [d for d in self.filter_pipeline
                           if d['filter_id'] == GZIP_DEFLATE_FILTER][0]
             return gzip_entry['client_data'][0]
         return None
@@ -553,10 +555,53 @@ class DataObjects(object):
     @property
     def _filter_ids(self):
         """ List of filter id in the filter pipeline, None if no pipeline. """
-        filter_pipeline = self._get_filter_pipeline()
-        if filter_pipeline is None:
+        if self.filter_pipeline is None:
             return None
-        return [d['filter_id'] for d in filter_pipeline]
+        return [d['filter_id'] for d in self.filter_pipeline]
+
+    @property
+    def filter_pipeline(self):
+        """ Dict describing filter pipeline, None if no pipeline. """
+        if self._filter_pipeline is not None:
+            return self._filter_pipeline  # use cached value
+
+        filter_msgs = self.find_msg_type(DATA_STORAGE_FILTER_PIPELINE_MSG_TYPE)
+        if len(filter_msgs) == 0:
+            self._filter_pipeline = None
+            return self._filter_pipeline
+
+        offset = filter_msgs[0]['offset_to_message']
+        version, nfilters = struct.unpack_from('<BB', self.msg_data, offset)
+        offset += struct.calcsize('<BB')
+        if version != 1:
+            raise NotImplementedError("only version 1 filters supported. ")
+
+        res0, res1 = struct.unpack_from('<HI', self.msg_data, offset)
+        offset += struct.calcsize('<HI')
+
+        filters = []
+        for _ in range(nfilters):
+            filter_info = _unpack_struct_from(
+                FILTER_PIPELINE_DESCR_V1, self.msg_data, offset)
+            offset += FILTER_PIPELINE_DESCR_V1_SIZE
+
+            padded_name_length = _padded_size(filter_info['name_length'], 8)
+            fmt = '<' + str(padded_name_length) + 's'
+            filter_name = struct.unpack_from(fmt, self.msg_data, offset)[0]
+            filter_info['filter_name'] = filter_name
+            offset += padded_name_length
+
+            fmt = '<' + str(filter_info['client_data_values']) + 'I'
+            client_data = struct.unpack_from(fmt, self.msg_data, offset)
+            filter_info['client_data'] = client_data
+            offset += 4 * filter_info['client_data_values']
+
+            if filter_info['client_data_values'] % 2:
+                offset += 4  # odd number of client data values padded
+
+            filters.append(filter_info)
+        self._filter_pipeline = filters
+        return self._filter_pipeline
 
     def get_data(self):
         """ Return the data pointed to in the DataObject. """
@@ -599,48 +644,10 @@ class DataObjects(object):
 
         element_size = struct.unpack_from('<I', self.msg_data, offset)
 
-        filter_pipeline = self._get_filter_pipeline()
         chunk_btree = BTreeRawDataChunks(self.fh, address, dims)
 
         return chunk_btree.construct_data_from_chunks(
-            chunk_shape, self.shape, self.dtype, filter_pipeline)
-
-    def _get_filter_pipeline(self):
-        filter_msgs = self.find_msg_type(DATA_STORAGE_FILTER_PIPELINE_MSG_TYPE)
-        if len(filter_msgs) == 0:
-            return None
-
-        offset = filter_msgs[0]['offset_to_message']
-        version, nfilters = struct.unpack_from('<BB', self.msg_data, offset)
-        offset += struct.calcsize('<BB')
-        if version != 1:
-            raise NotImplementedError("only version 1 filters supported. ")
-
-        res0, res1 = struct.unpack_from('<HI', self.msg_data, offset)
-        offset += struct.calcsize('<HI')
-
-        filters = []
-        for _ in range(nfilters):
-            filter_info = _unpack_struct_from(
-                FILTER_PIPELINE_DESCR_V1, self.msg_data, offset)
-            offset += FILTER_PIPELINE_DESCR_V1_SIZE
-
-            padded_name_length = _padded_size(filter_info['name_length'], 8)
-            fmt = '<' + str(padded_name_length) + 's'
-            filter_name = struct.unpack_from(fmt, self.msg_data, offset)[0]
-            filter_info['filter_name'] = filter_name
-            offset += padded_name_length
-
-            fmt = '<' + str(filter_info['client_data_values']) + 'I'
-            client_data = struct.unpack_from(fmt, self.msg_data, offset)
-            filter_info['client_data'] = client_data
-            offset += 4 * filter_info['client_data_values']
-
-            if filter_info['client_data_values'] % 2:
-                offset += 4  # odd number of client data values padded
-
-            filters.append(filter_info)
-        return filters
+            chunk_shape, self.shape, self.dtype, self.filter_pipeline)
 
     def find_msg_type(self, msg_type):
         """ Return a list of all messages of a given type. """
