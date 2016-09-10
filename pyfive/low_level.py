@@ -518,6 +518,46 @@ class DataObjects(object):
         msg_offset = msg['offset_to_message']
         return determine_dtype(self.msg_data, msg_offset)
 
+    @property
+    def compression(self):
+        """ str describing compression filter, None if no compression. """
+        if self._filter_ids is None:
+            return None
+        if GZIP_DEFLATE_FILTER in self._filter_ids:
+            return 'gzip'
+        else:
+            return None
+
+    @property
+    def compression_opts(self):
+        """ Compression filter options, None is no options/compression. """
+        if self._filter_ids is None:
+            return None
+        if GZIP_DEFLATE_FILTER in self._filter_ids:
+            filter_pipeline = self._get_filter_pipeline()
+            gzip_entry = [d for d in filter_pipeline
+                          if d['filter_id'] == GZIP_DEFLATE_FILTER][0]
+            return gzip_entry['client_data'][0]
+        return None
+
+    @property
+    def shuffle(self):
+        """ Boolean indicator if shuffle filter was applied. """
+        if self._filter_ids is None:
+            return False
+        if SHUFFLE_FILTER in self._filter_ids:
+            return True
+        else:
+            return False
+
+    @property
+    def _filter_ids(self):
+        """ List of filter id in the filter pipeline, None if no pipeline. """
+        filter_pipeline = self._get_filter_pipeline()
+        if filter_pipeline is None:
+            return None
+        return [d['filter_id'] for d in filter_pipeline]
+
     def get_data(self):
         """ Return the data pointed to in the DataObject. """
 
