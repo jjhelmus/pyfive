@@ -24,7 +24,8 @@ class SuperBlock(object):
         """ initalize. """
 
         fh.seek(offset)
-        version_hint = struct.unpack_from('<B', fh.peek(9), 8)[0]
+        version_hint = struct.unpack_from('<B', fh.read(9), 8)[0]
+        fh.seek(offset)
         if version_hint == 0:
             contents = _unpack_struct_from_file(SUPERBLOCK_V0, fh)
             self._end_of_sblock = offset + SUPERBLOCK_V0_SIZE
@@ -335,7 +336,8 @@ class DataObjects(object):
     def __init__(self, fh, offset):
         """ initalize. """
         fh.seek(offset)
-        version_hint = struct.unpack_from('<B', fh.peek(1))[0]
+        version_hint = struct.unpack_from('<B', fh.read(1))[0]
+        fh.seek(offset)
         if version_hint == 1:
             msgs, msg_data, header = self._parse_v1_objects(fh)
         elif version_hint == ord('O'):   # first character of v2 signature
