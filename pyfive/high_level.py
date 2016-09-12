@@ -108,8 +108,8 @@ class File(Group):
     Parameters
     ----------
     filename : str or file-like
-        Name of file (string or unicode) or file like object which have read,
-        seek and peek methods which behaved like a Python file object.
+        Name of file (string or unicode) or file like object which has read
+        and seek methods which behaved like a Python file object.
 
     Attributes
     ----------
@@ -125,9 +125,9 @@ class File(Group):
     def __init__(self, filename):
         """ initalize. """
         if hasattr(filename, 'read'):
-            if not hasattr(filename, 'seek') or not hasattr(filename, 'peek'):
+            if not hasattr(filename, 'seek'):
                 raise ValueError(
-                    'File like object must have a seek and peek method')
+                    'File like object must have a seek method')
             self._fh = filename
         else:
             self._fh = open(filename, 'rb')
