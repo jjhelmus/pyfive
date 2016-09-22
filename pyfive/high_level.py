@@ -1,11 +1,11 @@
 """ High-level classes for reading HDF5 files.  """
 
-from collections import Mapping
+from collections import Mapping, deque
 from io import open     # Python 2.7 requires for a Buffered Reader
 
 import numpy as np
 
-from .low_level import SuperBlock, DataObjects
+from .low_level import SuperBlock, DataObjects, Reference
 
 
 class Group(Mapping):
@@ -25,11 +25,14 @@ class Group(Mapping):
 
     """
 
-    def __init__(self, name, dataobjects, parent):
+    def __init__(self, name, dataobjects, parent, alt_file=None):
         """ initalize. """
 
         self.parent = parent
-        self.file = parent.file
+        if alt_file is None:
+            self.file = parent.file
+        else:
+            self.file = alt_file
         self.name = name
 
         self._links = dataobjects.get_links()
@@ -42,6 +45,20 @@ class Group(Mapping):
 
     def __getitem__(self, y):
         """ x.__getitem__(y) <==> x[y] """
+        if isinstance(y, Reference):
+            if not y:
+                raise ValueError('cannot deference null reference')
+            obj = self.file._get_object_by_address(y.address_of_reference)
+            if obj is None:
+                dataobjects = DataObjects(
+                    self.file._fh, y.address_of_reference)
+                if dataobjects.is_dataset:
+                    return Dataset(None, dataobjects, None, alt_file=self.file)
+                else:
+                    return Group(None, dataobjects, None, alt_file=self.file)
+            else:
+                return obj
+
         y = y.strip('/')
 
         if y not in self._links:
@@ -141,6 +158,18 @@ class File(Group):
         self.userblock_size = 0
         super(File, self).__init__('/', dataobjects, self)
 
+    def _get_object_by_address(self, obj_addr):
+        """ Return the object pointed to by a given address. """
+        # breadth first search of the file hierarchy for the given address
+        queue = deque([self])
+        while queue:
+            obj = queue.popleft()
+            if obj._dataobjects.offset == obj_addr:
+                return obj
+            if isinstance(obj, Group):
+                queue.extend(child for child in obj.values())
+        return None
+
     def close(self):
         """ Close the file. """
         self._fh.close()
@@ -188,10 +217,13 @@ class Dataset(object):
 
     """
 
-    def __init__(self, name, dataobjects, parent):
+    def __init__(self, name, dataobjects, parent, alt_file=None):
         """ initalize. """
         self.parent = parent
-        self.file = parent.file
+        if alt_file is None:
+            self.file = parent.file
+        else:
+            self.file = alt_file
         self.name = name
 
         self._dataobjects = dataobjects
