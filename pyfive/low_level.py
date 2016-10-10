@@ -622,16 +622,15 @@ class DataObjects(object):
         # offset and size from data storage message
         msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
         msg_offset = msg['offset_to_message']
-        version, layout_class = struct.unpack_from(
-            '<BB', self.msg_data, msg_offset)
-        assert version == 3
+        version, dims, layout_class, property_offset = (
+            self._get_data_message_properties(msg_offset))
 
         if layout_class == 2:  # chunked storage
             return self._get_chunked_data(msg_offset)
 
         assert layout_class == 1
-        data_offset, size = struct.unpack_from(
-                '<QQ', self.msg_data, msg_offset+2)
+        data_offset, = struct.unpack_from('<Q', self.msg_data, property_offset)
+
         if data_offset == UNDEFINED_ADDRESS:
             # no storage is backing array, return all zeros
             return np.zeros(self.shape, dtype=self.dtype)
@@ -639,6 +638,30 @@ class DataObjects(object):
         # return a memory-map to the stored array with copy-on-write
         return np.memmap(self.fh, dtype=self.dtype, mode='c',
                          offset=data_offset, shape=self.shape, order='C')
+
+    def _get_data_message_properties(self, msg_offset):
+        """ Return the message properties of the DataObject. """
+        dims, layout_class, property_offset = None, None, None
+        version, arg1, arg2 = struct.unpack_from(
+            '<BBB', self.msg_data, msg_offset)
+        if (version == 1) or (version == 2):
+            dims = arg1
+            layout_class = arg2
+            property_offset = msg_offset
+            property_offset += struct.calcsize('<BBB')
+            if layout_class == 1:
+                # reserved fields: 1 byte, 1 long
+                property_offset += struct.calcsize('<BQ')
+            elif layout_class == 2:
+                # reserved fields: 1 byte, 1 int
+                property_offset += struct.calcsize('<BI')
+            assert (layout_class == 1) or (layout_class == 2)
+        elif (version == 3) or (version == 4):
+            layout_class = arg1
+            property_offset = msg_offset
+            property_offset += struct.calcsize('<BB')
+        assert (version >= 1) and (version <= 4)
+        return version, dims, layout_class, property_offset
 
     def _get_chunked_data(self, offset):
         """ Return data which is chunked. """
@@ -661,17 +684,24 @@ class DataObjects(object):
         self._chunk_params_set = True
         msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
         offset = msg['offset_to_message']
-        version, layout_class = struct.unpack_from(
-            '<BB', self.msg_data, offset)
-        offset += struct.calcsize('<BB')
-        assert version == 3
+        version, dims, layout_class, property_offset = (
+            self._get_data_message_properties(offset))
+
         if layout_class != 2:  # not chunked storage
             return
 
-        dims, address = struct.unpack_from('<BQ', self.msg_data, offset)
-        offset += struct.calcsize('<BQ')
+        address = None
+        if (version == 1) or (version == 2):
+            address, = struct.unpack_from('<Q', self.msg_data, property_offset)
+            data_offset = property_offset + struct.calcsize('<Q')
+        elif version == 3:
+            dims, address = struct.unpack_from(
+                '<BQ', self.msg_data, property_offset)
+            data_offset = property_offset + struct.calcsize('<BQ')
+        assert (version >= 1) and (version <= 3)
+
         fmt = '<' + 'I' * (dims-1)
-        chunk_shape = struct.unpack_from(fmt, self.msg_data, offset)
+        chunk_shape = struct.unpack_from(fmt, self.msg_data, data_offset)
         self._chunks = chunk_shape
         self._chunk_dims = dims
         self._chunk_address = address
