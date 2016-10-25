@@ -15,6 +15,21 @@ class InvalidHDF5File(Exception):
     pass
 
 
+class Reference(object):
+    """
+    HDF5 Reference.
+    """
+
+    def __init__(self, address_of_reference):
+        self.address_of_reference = address_of_reference
+
+    def __bool__(self):
+        # False for null references (address of 0) True otherwise
+        return bool(self.address_of_reference)
+
+    __nonzero__ = __bool__  # Python 2.x requires __nonzero__ for truth value
+
+
 class SuperBlock(object):
     """
     HDF5 Superblock.
@@ -171,6 +186,19 @@ class BTreeRawDataChunks(object):
     def construct_data_from_chunks(
             self, chunk_shape, data_shape, dtype, filter_pipeline):
         """ Build a complete data array from chunks. """
+        if isinstance(dtype, tuple):
+            true_dtype = tuple(dtype)
+            dtype_class = dtype[0]
+            if dtype_class == 'REFERENCE':
+                size = dtype[1]
+                if size != 8:
+                    raise NotImplementedError('Unsupported Reference type')
+                dtype = '<u8'
+            else:
+                raise NotImplementedError('datatype not implemented')
+        else:
+            true_dtype = None
+
         # create array to store data
         shape = [_padded_size(i, j) for i, j in zip(data_shape, chunk_shape)]
         data = np.zeros(shape, dtype=dtype)
@@ -194,6 +222,13 @@ class BTreeRawDataChunks(object):
                 start = node_key['chunk_offset'][:-1]
                 region = [slice(i, i+j) for i, j in zip(start, chunk_shape)]
                 data[region] = chunk_data.reshape(chunk_shape)
+
+        if isinstance(true_dtype, tuple):
+            if dtype_class == 'REFERENCE':
+                to_reference = np.vectorize(Reference)
+                data = to_reference(data)
+            else:
+                raise NotImplementedError('datatype not implemented')
 
         non_padded_region = [slice(i) for i in data_shape]
         return data[non_padded_region]
@@ -348,6 +383,7 @@ class DataObjects(object):
         self.fh = fh
         self.msgs = msgs
         self.msg_data = msg_data
+        self.offset = offset
         self._global_heaps = {}
         self._header = header
 
@@ -453,6 +489,7 @@ class DataObjects(object):
         """ Return the attribute name and value. """
 
         # read in the attribute message header
+        # See section IV.A.2.m. The Attribute Message for details
         version = struct.unpack_from('<B', self.msg_data, offset)[0]
         if version == 1:
             attr_dict = _unpack_struct_from(
@@ -490,7 +527,15 @@ class DataObjects(object):
 
         # read in the value
         if isinstance(dtype, tuple):
-            value = self._vlen_attr_value(offset, dtype)
+            dtype_class = dtype[0]
+            if dtype_class == 'VLEN_STRING':
+                value = self._vlen_attr_value(offset, dtype)
+            elif dtype_class == 'REFERENCE':
+                address = struct.unpack_from(
+                    '<Q', self.msg_data, offset=offset)[0]
+                value = Reference(address)
+            else:
+                raise NotImplementedError
         else:
             value = np.frombuffer(
                 self.msg_data, dtype=dtype, count=1, offset=offset)[0]
@@ -560,10 +605,7 @@ class DataObjects(object):
         """ Boolean indicator if shuffle filter was applied. """
         if self._filter_ids is None:
             return False
-        if SHUFFLE_FILTER in self._filter_ids:
-            return True
-        else:
-            return False
+        return SHUFFLE_FILTER in self._filter_ids
 
     @property
     def _filter_ids(self):
@@ -635,9 +677,22 @@ class DataObjects(object):
             # no storage is backing array, return all zeros
             return np.zeros(self.shape, dtype=self.dtype)
 
-        # return a memory-map to the stored array with copy-on-write
-        return np.memmap(self.fh, dtype=self.dtype, mode='c',
-                         offset=data_offset, shape=self.shape, order='C')
+        if not isinstance(self.dtype, tuple):
+            # return a memory-map to the stored array with copy-on-write
+            return np.memmap(self.fh, dtype=self.dtype, mode='c',
+                             offset=data_offset, shape=self.shape, order='C')
+        else:
+            dtype_class = self.dtype[0]
+            if dtype_class == 'REFERENCE':
+                size = self.dtype[1]
+                if size != 8:
+                    raise NotImplementedError('Unsupported Reference type')
+                ref_addresses = np.memmap(
+                    self.fh, dtype=('<u8'), mode='c', offset=data_offset,
+                    shape=self.shape, order='C')
+                return np.array([Reference(addr) for addr in ref_addresses])
+            else:
+                raise NotImplementedError('datatype not implemented')
 
     def _get_data_message_properties(self, msg_offset):
         """ Return the message properties of the DataObject. """
@@ -813,7 +868,7 @@ def determine_dtype(buf, offset):
     elif datatype_class == DATATYPE_COMPOUND:
         raise NotImplementedError("Compound datatype class not supported.")
     elif datatype_class == DATATYPE_REFERENCE:
-        raise NotImplementedError("Reference datatype class not supported.")
+        return ('REFERENCE', datatype_msg['size'])
     elif datatype_class == DATATYPE_ENUMERATED:
         raise NotImplementedError("Enumerated datatype class not supported.")
     elif datatype_class == DATATYPE_ARRAY:
