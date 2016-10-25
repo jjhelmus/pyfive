@@ -27,7 +27,7 @@ class Reference(object):
         # False for null references (address of 0) True otherwise
         return bool(self.address_of_reference)
 
-    __nonzero__ = __bool__  # Python 2.x requires __nonzero__ for
+    __nonzero__ = __bool__  # Python 2.x requires __nonzero__ for truth value
 
 
 class SuperBlock(object):
@@ -605,10 +605,7 @@ class DataObjects(object):
         """ Boolean indicator if shuffle filter was applied. """
         if self._filter_ids is None:
             return False
-        if SHUFFLE_FILTER in self._filter_ids:
-            return True
-        else:
-            return False
+        return SHUFFLE_FILTER in self._filter_ids
 
     @property
     def _filter_ids(self):
