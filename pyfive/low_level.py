@@ -786,9 +786,21 @@ class DataObjects(object):
         heap = Heap(self.fh, symbol_table_message['heap_address'])
         links = {}
         for symbol_table_address in btree.symbol_table_addresses():
-            table = SymbolTable(self.fh, symbol_table_address)
-            table.assign_name(heap)
-            links.update(table.get_links())
+            self.fh.seek(symbol_table_address)
+            node = _unpack_struct_from_file(SYMBOL_TABLE_NODE, self.fh)
+            if node['signature'] == b'TREE':
+                # The group is a collection of symbol table nodes
+                # indexed by a B-tree
+                sub_btree = BTree(self.fh, symbol_table_address)
+                for sub_address in sub_btree.symbol_table_addresses():
+                    table = SymbolTable(self.fh, sub_address)
+                    table.assign_name(heap)
+                    links.update(table.get_links())
+            else:
+                # The group is a single symbol table, i.e. 'SNOD'
+                table = SymbolTable(self.fh, symbol_table_address)
+                table.assign_name(heap)
+                links.update(table.get_links())
         return links
 
     def _get_links_from_link_msgs(self):
