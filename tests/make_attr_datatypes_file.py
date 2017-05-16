@@ -46,6 +46,14 @@ attrs['vlen_string'] = b'Hello'
 # variable length unicode
 attrs['vlen_unicode'] = u'Hello' + chr(0x00A7)
 
+# arrayed numeric types
+attrs.create('int32_array', [-123, 45], dtype='<i4')
+attrs.create('uint64_array', [12, 34], dtype='>u8')
+attrs.create('float32_array', [123, 456], dtype='<f4')
+
+# arrayed variable length strings
+attrs['vlen_str_array'] = [b'Hello', b'World!']
+
 # TODO more complex datatypes
 # complex H5T_COMPOUND
 #attrs.create('complex64_little', 123+456.j, dtype='<c8')
@@ -57,8 +65,5 @@ attrs['vlen_unicode'] = u'Hello' + chr(0x00A7)
 # booleans  HT5_ENUM
 #attrs.create('bool', True, dtype=np.bool_)
 
-# arrayed numeric types
-
-# arrayed variable length strings
 
 f.close()

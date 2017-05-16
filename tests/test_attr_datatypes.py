@@ -57,3 +57,21 @@ def test_string_scalar_attr_datatypes():
         u'Hello' + b'\xc2\xa7'.decode('utf-8'))
 
     hfile.close()
+
+
+def test_numeric_array_attr_datatypes():
+
+    hfile = pyfive.File(ATTR_DATATYPES_HDF5_FILE)
+
+    assert_array_equal(hfile.attrs['int32_array'], [-123, 45])
+    assert_array_equal(hfile.attrs['uint64_array'], [12, 34])
+    assert_array_equal(hfile.attrs['float32_array'], [123, 456])
+
+    assert hfile.attrs['int32_array'].dtype == np.dtype('<i4')
+    assert hfile.attrs['uint64_array'].dtype == np.dtype('>u8')
+    assert hfile.attrs['float32_array'].dtype == np.dtype('<f4')
+
+    assert hfile.attrs['vlen_str_array'][0] == b'Hello'
+    assert hfile.attrs['vlen_str_array'][1] == b'World!'
+
+    assert hfile.attrs['vlen_str_array'].dtype == np.dtype('S6')
