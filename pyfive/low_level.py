@@ -527,33 +527,29 @@ class DataObjects(object):
         items = int(np.product(shape))
         offset += _padded_size(attr_dict['dataspace_size'], padding_multiple)
 
-        # read in the value
+        # read in the value(s)
         if isinstance(dtype, tuple):
             dtype_class = dtype[0]
-            values = []
+            value = np.empty(items, dtype=np.object)
             for i in range(items):
                 if dtype_class == 'VLEN_STRING':
-                    value = self._vlen_attr_value(offset, dtype)
+                    value[i] = self._vlen_attr_value(offset, dtype)
                     offset += 16
                 elif dtype_class == 'REFERENCE':
                     address = struct.unpack_from(
                         '<Q', self.msg_data, offset=offset)[0]
-                    value = Reference(address)
+                    value[i] = Reference(address)
                     offset += 4
                 else:
                     raise NotImplementedError
-                values.append(value)
-            if shape == ():
-                value = values[0]
-            else:
-                value = tuple(values)
         else:
             value = np.frombuffer(
                 self.msg_data, dtype=dtype, count=items, offset=offset)
-            if shape == ():
-                value = value[0]
-            else:
-                value = value.reshape(shape)
+
+        if shape == ():
+            value = value[0]
+        else:
+            value = value.reshape(shape)
         return name, value
 
     def _vlen_attr_value(self, offset, info):
