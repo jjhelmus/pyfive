@@ -75,3 +75,29 @@ def test_numeric_array_attr_datatypes():
     assert hfile.attrs['vlen_str_array'][1] == b'World!'
 
     assert hfile.attrs['vlen_str_array'].dtype == np.dtype('S6')
+
+    hfile.close()
+
+
+def test_vlen_sequence_attr_datatypes():
+
+    hfile = pyfive.File(ATTR_DATATYPES_HDF5_FILE)
+
+    vlen_attr = hfile.attrs['vlen_int32']
+    assert len(vlen_attr) == 2
+    assert_array_equal(vlen_attr[0], [-1, 2])
+    assert_array_equal(vlen_attr[1], [3, 4, 5])
+
+    vlen_attr = hfile.attrs['vlen_uint64']
+    assert len(vlen_attr) == 3
+    assert_array_equal(vlen_attr[0], [1, 2])
+    assert_array_equal(vlen_attr[1], [3, 4, 5])
+    assert_array_equal(vlen_attr[2], [42])
+
+    vlen_attr = hfile.attrs['vlen_float32']
+    assert len(vlen_attr) == 3
+    assert_array_equal(vlen_attr[0], [0])
+    assert_array_equal(vlen_attr[1], [1, 2, 3])
+    assert_array_equal(vlen_attr[2], [4, 5])
+
+    hfile.close()

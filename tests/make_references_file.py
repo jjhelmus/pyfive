@@ -22,6 +22,14 @@ f.attrs['dataset1_reference'] = dset1.ref
 f.attrs['group1_reference'] = grp.ref
 f.attrs['dataset1_region_reference'] = region_ref
 
+# variable length sequence of references sequence
+val = np.empty((2, ), dtype=np.object)
+ref_dtype = h5py.special_dtype(ref=h5py.Reference)
+val[0] = np.array([f.ref], dtype=ref_dtype)
+val[1] = np.array([dset1.ref, grp.ref], dtype=ref_dtype)
+dt = h5py.special_dtype(vlen=ref_dtype)
+f.attrs.create('vlen_refs', val, dtype=dt)
+
 # array of references
 ref_dtype = h5py.special_dtype(ref=h5py.Reference)
 
