@@ -54,6 +54,27 @@ attrs.create('float32_array', [123, 456], dtype='<f4')
 # arrayed variable length strings
 attrs['vlen_str_array'] = [b'Hello', b'World!']
 
+# variables length sequences
+val = np.empty((2, ), dtype=np.object)
+val[0] = np.array([-1, 2], dtype='<i4')
+val[1] = np.array([3, 4, 5], dtype='<i4')
+dt = h5py.special_dtype(vlen=np.dtype('<i4'))
+attrs.create('vlen_int32', val, dtype=dt)
+
+val = np.empty((3, ), dtype=np.object)
+val[0] = np.array([1, 2], dtype='>u8')
+val[1] = np.array([3, 4, 5], dtype='>u8')
+val[2] = np.array([42], dtype='>u8')
+dt = h5py.special_dtype(vlen=np.dtype('>u8'))
+attrs.create('vlen_uint64', val, dtype=dt)
+
+val = np.empty((3, ), dtype=np.object)
+val[0] = np.array([0, ], dtype='<f4')
+val[1] = np.array([1, 2, 3], dtype='<f4')
+val[2] = np.array([4, 5], dtype='<f4')
+dt = h5py.special_dtype(vlen=np.dtype('<f4'))
+attrs.create('vlen_float32', val, dtype=dt)
+
 # TODO more complex datatypes
 # complex H5T_COMPOUND
 #attrs.create('complex64_little', 123+456.j, dtype='<c8')

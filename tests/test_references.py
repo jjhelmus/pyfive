@@ -38,6 +38,35 @@ def test_reference_attrs():
     hfile.close()
 
 
+def test_reference_vlen_attr():
+
+    hfile = pyfive.File(REFERENCES_HDF5_FILE)
+
+    vlen_ref_attr = hfile.attrs['vlen_refs']
+    root_ref = vlen_ref_attr[0][0]
+    dset_ref = vlen_ref_attr[1][0]
+    group_ref = vlen_ref_attr[1][1]
+
+    # check references
+    root = hfile[root_ref]
+    assert root.attrs['root_attr'] == 123
+    assert root.name == '/'
+    assert root.parent.name == '/'
+
+    dset1 = hfile[dset_ref]
+    assert_array_equal(dset1[:], [0, 1, 2, 3])
+    assert dset1.attrs['dset_attr'] == 456
+    assert dset1.name == '/dataset1'
+    assert dset1.parent.name == '/'
+
+    group = hfile[group_ref]
+    assert group.attrs['group_attr'] == 789
+    assert group.name == '/group1'
+    assert group.parent.name == '/'
+
+    hfile.close()
+
+
 def test_reference_dataset():
 
     hfile = pyfive.File(REFERENCES_HDF5_FILE)
