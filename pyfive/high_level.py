@@ -1,6 +1,6 @@
 """ High-level classes for reading HDF5 files.  """
 
-from collections import Mapping, deque
+from collections import Mapping, deque, Sequence
 from io import open     # Python 2.7 requires for a Buffered Reader
 
 import numpy as np
@@ -299,7 +299,7 @@ class Dataset(object):
     @property
     def dims(self):
         """ dims attribute. """
-        raise NotImplementedError
+        return DimensionManager(self)
 
     @property
     def attrs(self):
@@ -307,3 +307,39 @@ class Dataset(object):
         if self._attrs is None:
             self._attrs = self._dataobjects.get_attributes()
         return self._attrs
+
+
+class DimensionManager(Sequence):
+    """ Represents a collection of dimensions associated with a dataset. """
+    def __init__(self, dset):
+        ndim = len(dset.shape)
+        dim_list = [[]]*ndim
+        if 'DIMENSION_LIST' in dset.attrs:
+            dim_list = dset.attrs['DIMENSION_LIST']
+        dim_labels = [b'']*ndim
+        if 'DIMENSION_LABELS' in dset.attrs:
+            dim_labels = dset.attrs['DIMENSION_LABELS']
+        self._dims = [
+            DimensionProxy(dset.file, label, refs) for
+            label, refs in zip(dim_labels, dim_list)]
+
+    def __len__(self):
+        return len(self._dims)
+
+    def __getitem__(self, x):
+        return self._dims[x]
+
+
+class DimensionProxy(Sequence):
+    """ Represents a HDF5 "dimension". """
+
+    def __init__(self, dset_file, label, refs):
+        self.label = label.decode('utf-8')
+        self._refs = refs
+        self._file = dset_file
+
+    def __len__(self):
+        return len(self._refs)
+
+    def __getitem__(self, x):
+        return self._file[self._refs[x]]
