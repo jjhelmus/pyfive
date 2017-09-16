@@ -540,6 +540,30 @@ class DataObjects(object):
                         '<Q', self.msg_data, offset=offset)[0]
                     value[i] = Reference(address)
                     offset += 4
+                elif dtype_class == "VLEN_SEQUENCE":
+                    base_dtype = dtype[1]
+                    # section IV.B
+                    # Data with a variable-length datatype is stored in the
+                    # global heap of the HDF5 file. Global heap identifiers are
+                    # stored in the data object storage.
+
+                    # section III.E define the layout of global heap IDs
+                    vlen, gheap_addr, gheap_id = struct.unpack_from(
+                        '<IQI', self.msg_data, offset=offset)
+                    offset += 16
+                    gheap = GlobalHeap(self.fh, gheap_addr)
+                    payload = gheap.objects[gheap_id]
+                    if isinstance(base_dtype, tuple):
+                        base_dtype_class = base_dtype[0]
+                        if base_dtype_class == 'REFERENCE':
+                            addrs = np.fromstring(payload, '<Q')
+                            refs = [Reference(a) for a in addrs]
+                            vlen_entry = np.array(refs, dtype='object')
+                        else:
+                            raise NotImplementedError
+                    else:
+                        vlen_entry = np.fromstring(payload, base_dtype)
+                    value[i] = vlen_entry
                 else:
                     raise NotImplementedError
         else:
@@ -885,7 +909,11 @@ def determine_dtype(buf, offset):
     elif datatype_class == DATATYPE_ARRAY:
         raise NotImplementedError("Array datatype class not supported.")
     elif datatype_class == DATATYPE_VARIABLE_LENGTH:
-        return _determine_dtype_vlen(datatype_msg)
+        vlen_type = _determine_dtype_vlen(datatype_msg)
+        if vlen_type[0] == 'VLEN_SEQUENCE':
+            base_type = determine_dtype(buf, offset+8)
+            vlen_type = ('VLEN_SEQUENCE', base_type)
+        return vlen_type
     else:
         raise InvalidHDF5File('Invalid datatype class %i' % (datatype_class))
 
@@ -939,8 +967,7 @@ def _determine_dtype_vlen(datatype_msg):
     """ Return the dtype information for a variable length class. """
     vlen_type = datatype_msg['class_bit_field_0'] & 0x01
     if vlen_type != 1:
-        raise NotImplementedError(
-            "Non-string variable length datatypes not supported.")
+        return ('VLEN_SEQUENCE', 0, 0)
     padding_type = datatype_msg['class_bit_field_0'] >> 4  # bits 4-7
     character_set = datatype_msg['class_bit_field_1'] & 0x01
     return ('VLEN_STRING', padding_type, character_set)
