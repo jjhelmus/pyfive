@@ -18,38 +18,36 @@ except NameError:
 
 def test_read_latest():
 
-    hfile = pyfive.File(LATEST_HDF5_FILE)
+    with pyfive.File(LATEST_HDF5_FILE) as hfile:
 
-    # root
-    assert hfile.attrs['attr1'] == -123
-    assert hfile.attrs['attr1'].dtype == np.dtype('int32')
+        # root
+        assert hfile.attrs['attr1'] == -123
+        assert hfile.attrs['attr1'].dtype == np.dtype('int32')
 
-    dset1 = hfile['dataset1']
-    assert_array_equal(dset1[:], np.arange(4))
-    assert dset1.dtype == np.dtype('<i4')
-    assert dset1.attrs['attr2'] == 130
-    assert dset1.attrs['attr2'].dtype == np.dtype('uint8')
+        dset1 = hfile['dataset1']
+        assert_array_equal(dset1[:], np.arange(4))
+        assert dset1.dtype == np.dtype('<i4')
+        assert dset1.attrs['attr2'] == 130
+        assert dset1.attrs['attr2'].dtype == np.dtype('uint8')
 
-    # group
-    grp = hfile['/group1']
-    assert_almost_equal(grp.attrs['attr3'], 12.34, 2)
-    assert grp.attrs['attr3'].dtype == np.dtype('float32')
+        # group
+        grp = hfile['/group1']
+        assert_almost_equal(grp.attrs['attr3'], 12.34, 2)
+        assert grp.attrs['attr3'].dtype == np.dtype('float32')
 
-    dset2 = grp['dataset2']
-    assert_array_equal(dset2[:], np.arange(4))
-    assert dset2.dtype == np.dtype('>u8')
-    assert dset2.attrs['attr4'] == b'Hi'
-    assert dset2.attrs['attr4'].dtype == np.dtype('|S2')
+        dset2 = grp['dataset2']
+        assert_array_equal(dset2[:], np.arange(4))
+        assert dset2.dtype == np.dtype('>u8')
+        assert dset2.attrs['attr4'] == b'Hi'
+        assert dset2.attrs['attr4'].dtype == np.dtype('|S2')
 
-    # sub-group
-    subgroup = grp['subgroup1']
-    assert subgroup.attrs['attr5'] == b'Test'
-    assert isinstance(subgroup.attrs['attr5'], bytes)
+        # sub-group
+        subgroup = grp['subgroup1']
+        assert subgroup.attrs['attr5'] == b'Test'
+        assert isinstance(subgroup.attrs['attr5'], bytes)
 
-    dset3 = subgroup['dataset3']
-    assert_array_equal(dset2[:], np.arange(4))
-    assert dset3.dtype == np.dtype('<f4')
-    assert dset3.attrs['attr6'] == u'Test' + b'\xc2\xa7'.decode('utf-8')
-    assert isinstance(dset3.attrs['attr6'], string_type)
-
-    hfile.close()
+        dset3 = subgroup['dataset3']
+        assert_array_equal(dset2[:], np.arange(4))
+        assert dset3.dtype == np.dtype('<f4')
+        assert dset3.attrs['attr6'] == u'Test' + b'\xc2\xa7'.decode('utf-8')
+        assert isinstance(dset3.attrs['attr6'], string_type)
