@@ -13,25 +13,23 @@ NETCDF4_CLASSIC_FILE = os.path.join(DIRNAME, 'netcdf4_classic.nc')
 
 def test_read_netcdf4_classic():
 
-    hfile = pyfive.File(NETCDF4_CLASSIC_FILE)
+    with pyfive.File(NETCDF4_CLASSIC_FILE) as hfile:
 
-    # attributes
-    assert hfile.attrs['attr1'] == -123
-    assert hfile.attrs['attr2'] == 130
+        # attributes
+        assert hfile.attrs['attr1'] == -123
+        assert hfile.attrs['attr2'] == 130
 
-    # dataset
-    var1 = hfile['var1']
-    assert var1.dtype == np.dtype('<i4')
-    assert_array_equal(var1[:], np.arange(4))
+        # dataset
+        var1 = hfile['var1']
+        assert var1.dtype == np.dtype('<i4')
+        assert_array_equal(var1[:], np.arange(4))
 
-    # dataset attributes
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        assert_almost_equal(var1.attrs['attr3'], 12.34, 2)
-    assert var1.attrs['attr4'] == b'Hi'
+        # dataset attributes
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            assert_almost_equal(var1.attrs['attr3'], 12.34, 2)
+        assert var1.attrs['attr4'] == b'Hi'
 
-    # dimension dataset
-    assert 'x' in hfile
-    assert_array_equal(hfile['x'][:], np.zeros((4, )))
-
-    hfile.close()
+        # dimension dataset
+        assert 'x' in hfile
+        assert_array_equal(hfile['x'][:], np.zeros((4, )))

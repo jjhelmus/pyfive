@@ -12,11 +12,9 @@ DATASET_CHUNKED_HDF5_FILE = os.path.join(DIRNAME, 'chunked.hdf5')
 
 def test_chunked_dataset():
 
-    hfile = pyfive.File(DATASET_CHUNKED_HDF5_FILE)
+    with pyfive.File(DATASET_CHUNKED_HDF5_FILE) as hfile:
 
-    # check data
-    dset1 = hfile['dataset1']
-    assert_array_equal(dset1[:], np.arange(21*16).reshape((21, 16)))
-    assert dset1.chunks == (2, 2)
-
-    hfile.close()
+        # check data
+        dset1 = hfile['dataset1']
+        assert_array_equal(dset1[:], np.arange(21*16).reshape((21, 16)))
+        assert dset1.chunks == (2, 2)

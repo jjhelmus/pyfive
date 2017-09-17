@@ -122,6 +122,10 @@ class File(Group):
     Note in addition to having file specific methods the File object also
     inherit the full interface of **Group**.
 
+    File is also a context manager and therefore supports the with statement.
+    Files opened by the class will be closed after the with block, file-like
+    object are not closed.
+
     Parameters
     ----------
     filename : str or file-like
@@ -146,8 +150,10 @@ class File(Group):
                 raise ValueError(
                     'File like object must have a seek method')
             self._fh = filename
+            self._close = False
         else:
             self._fh = open(filename, 'rb')
+            self._close = True
         self._superblock = SuperBlock(self._fh, 0)
         offset = self._superblock.offset_to_dataobjects
         dataobjects = DataObjects(self._fh, offset)
@@ -172,7 +178,15 @@ class File(Group):
 
     def close(self):
         """ Close the file. """
-        self._fh.close()
+        if self._close:
+            self._fh.close()
+    __del__ = close
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
 
 
 class Dataset(object):
