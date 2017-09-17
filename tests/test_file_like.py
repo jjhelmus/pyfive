@@ -52,5 +52,6 @@ def test_read_latest_fileobj():
             dset3 = subgroup['dataset3']
             assert_array_equal(dset2[:], np.arange(4))
             assert dset3.dtype == np.dtype('<f4')
-            assert dset3.attrs['attr6'] == u'Test' + b'\xc2\xa7'.decode('utf-8')
+            ref_attr6 = u'Test' + b'\xc2\xa7'.decode('utf-8')
+            assert dset3.attrs['attr6'] == ref_attr6
             assert isinstance(dset3.attrs['attr6'], string_type)
