@@ -135,7 +135,7 @@ class File(Group):
     Attributes
     ----------
     filename : str
-        Name of the file on disk.
+        Name of the file on disk, None if not available.
     mode : str
         String indicating that the file is open readonly ("r").
     userblock_size : int
@@ -151,14 +151,15 @@ class File(Group):
                     'File like object must have a seek method')
             self._fh = filename
             self._close = False
+            self.filename = getattr(filename, 'name', None)
         else:
             self._fh = open(filename, 'rb')
             self._close = True
+            self.filename = filename
         self._superblock = SuperBlock(self._fh, 0)
         offset = self._superblock.offset_to_dataobjects
         dataobjects = DataObjects(self._fh, offset)
 
-        self.filename = filename
         self.file = self
         self.mode = 'r'
         self.userblock_size = 0

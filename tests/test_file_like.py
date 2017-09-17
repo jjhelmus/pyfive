@@ -23,6 +23,8 @@ def test_read_latest_fileobj():
     with io.open(LATEST_HDF5_FILE, 'rb') as f:
         with pyfive.File(f) as hfile:
 
+            assert hfile.filename == LATEST_HDF5_FILE
+
             # root
             assert hfile.attrs['attr1'] == -123
             assert hfile.attrs['attr1'].dtype == np.dtype('int32')
