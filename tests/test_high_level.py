@@ -98,6 +98,9 @@ def test_dataset_class():
         assert dset1.shape == (4, )
         assert dset2.shape == (4, )
 
+        assert dset1.ndim == 1
+        assert dset2.ndim == 1
+
         assert dset1.dtype == np.dtype('<i4')
         assert dset2.dtype == np.dtype('>u8')
 

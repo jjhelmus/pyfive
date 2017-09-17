@@ -219,6 +219,8 @@ class Dataset(object):
     fillvalue : float or None
         Value indicating uninitialized portions of the dataset. None is no fill
         values has been defined.
+    dim : int
+        Number of dimensions.
     dims : None
         Dimension scales.
     attrs : dict
@@ -265,6 +267,11 @@ class Dataset(object):
     def shape(self):
         """ shape attribute. """
         return self._dataobjects.shape
+
+    @property
+    def ndim(self):
+        """ number of dimensions. """
+        return len(self.shape)
 
     @property
     def dtype(self):
