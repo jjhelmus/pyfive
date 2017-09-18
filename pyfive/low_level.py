@@ -528,47 +528,7 @@ class DataObjects(object):
         offset += _padded_size(attr_dict['dataspace_size'], padding_multiple)
 
         # read in the value(s)
-        if isinstance(dtype, tuple):
-            dtype_class = dtype[0]
-            value = np.empty(items, dtype=np.object)
-            for i in range(items):
-                if dtype_class == 'VLEN_STRING':
-                    value[i] = self._vlen_attr_value(offset, dtype)
-                    offset += 16
-                elif dtype_class == 'REFERENCE':
-                    address = struct.unpack_from(
-                        '<Q', self.msg_data, offset=offset)[0]
-                    value[i] = Reference(address)
-                    offset += 4
-                elif dtype_class == "VLEN_SEQUENCE":
-                    base_dtype = dtype[1]
-                    # section IV.B
-                    # Data with a variable-length datatype is stored in the
-                    # global heap of the HDF5 file. Global heap identifiers are
-                    # stored in the data object storage.
-
-                    # section III.E define the layout of global heap IDs
-                    vlen, gheap_addr, gheap_id = struct.unpack_from(
-                        '<IQI', self.msg_data, offset=offset)
-                    offset += 16
-                    gheap = GlobalHeap(self.fh, gheap_addr)
-                    payload = gheap.objects[gheap_id]
-                    if isinstance(base_dtype, tuple):
-                        base_dtype_class = base_dtype[0]
-                        if base_dtype_class == 'REFERENCE':
-                            addrs = np.fromstring(payload, '<Q')
-                            refs = [Reference(a) for a in addrs]
-                            vlen_entry = np.array(refs, dtype='object')
-                        else:
-                            raise NotImplementedError
-                    else:
-                        vlen_entry = np.fromstring(payload, base_dtype)
-                    value[i] = vlen_entry
-                else:
-                    raise NotImplementedError
-        else:
-            value = np.frombuffer(
-                self.msg_data, dtype=dtype, count=items, offset=offset)
+        value = self._attr_value(dtype, self.msg_data, items, offset)
 
         if shape == ():
             value = value[0]
@@ -576,23 +536,53 @@ class DataObjects(object):
             value = value.reshape(shape)
         return name, value
 
-    def _vlen_attr_value(self, offset, info):
-        """ Return the value of a variable length attribute. """
-        vlen_type, padding_type, character_set = info
-        vlen_size, gheap_address, gheap_index = struct.unpack_from(
-            '<IQI', self.msg_data, offset)
+    def _attr_value(self, dtype, buf, count, offset):
+        """ Retrieve an HDF5 attribute value from a buffer. """
+        if isinstance(dtype, tuple):
+            dtype_class = dtype[0]
+            value = np.empty(count, dtype=np.object)
+            for i in range(count):
+                if dtype_class == 'VLEN_STRING':
+                    _, _, character_set = dtype
+                    _, vlen_data = self._vlen_size_and_data(buf, offset)
+                    if character_set == 0:
+                        # ascii character set, return as bytes
+                        value[i] = vlen_data
+                    else:
+                        value[i] = vlen_data.decode('utf-8')
+                    offset += 16
+                elif dtype_class == 'REFERENCE':
+                    address, = struct.unpack_from('<Q', buf, offset=offset)
+                    value[i] = Reference(address)
+                    offset += 8
+                elif dtype_class == "VLEN_SEQUENCE":
+                    base_dtype = dtype[1]
+                    vlen, vlen_data = self._vlen_size_and_data(buf, offset)
+                    value[i] = self._attr_value(base_dtype, vlen_data, vlen, 0)
+                    offset += 16
+                else:
+                    raise NotImplementedError
+        else:
+            value = np.frombuffer(buf, dtype=dtype, count=count, offset=offset)
+        return value
+
+    def _vlen_size_and_data(self, buf, offset):
+        """ Extract the length and data of a variables length attr. """
+        # offset should be incremented by 16 after calling this method
+        vlen_size, = struct.unpack_from('<I', buf, offset=offset)
+        # section IV.B
+        # Data with a variable-length datatype is stored in the
+        # global heap of the HDF5 file. Global heap identifiers are
+        # stored in the data object storage.
+        gheap_id = _unpack_struct_from(GLOBAL_HEAP_ID, buf, offset+4)
+        gheap_address = gheap_id['collection_address']
         if gheap_address not in self._global_heaps:
             # load the global heap and cache the instance
             gheap = GlobalHeap(self.fh, gheap_address)
             self._global_heaps[gheap_address] = gheap
         gheap = self._global_heaps[gheap_address]
-        value = gheap.objects[gheap_index]
-        if character_set == 0:
-            # ascii character set, return as bytes
-            value = value
-        else:
-            value = value.decode('utf-8')
-        return value
+        vlen_data = gheap.objects[gheap_id['object_index']]
+        return vlen_size, vlen_data
 
     @property
     def shape(self):
@@ -1126,6 +1116,12 @@ GLOBAL_HEAP_OBJECT = OrderedDict((
     ('object_size', 'Q')    # 8 byte addressing
 ))
 GLOBAL_HEAP_OBJECT_SIZE = _structure_size(GLOBAL_HEAP_OBJECT)
+
+GLOBAL_HEAP_ID = OrderedDict((
+    ('collection_address', 'Q'),  # 8 byte addressing
+    ('object_index', 'I'),
+))
+GLOBAL_HEAP_ID_SIZE = _structure_size(GLOBAL_HEAP_ID)
 
 # IV.A.1.a Version 1 Data Object Header Prefix
 OBJECT_HEADER_V1 = OrderedDict((
