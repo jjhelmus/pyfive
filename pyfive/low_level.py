@@ -253,10 +253,10 @@ class BTreeRawDataChunks(object):
                 buffer_size = len(chunk_buffer)
                 unshuffled_buffer = bytearray(buffer_size)
                 step = buffer_size // itemsize
-                for i in range(itemsize):
-                    start = i * step
-                    end = (i+1) * step
-                    unshuffled_buffer[i::itemsize] = chunk_buffer[start:end]
+                for j in range(itemsize):
+                    start = j * step
+                    end = (j+1) * step
+                    unshuffled_buffer[j::itemsize] = chunk_buffer[start:end]
                 chunk_buffer = unshuffled_buffer
             else:
                 raise NotImplementedError(
