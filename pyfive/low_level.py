@@ -919,9 +919,8 @@ def _determine_dtype_compound(datatype_msg, buf, offset):
     # read in the members of the compound datatype
     members = []
     for _ in range(n_comp):
-        name_size = 8
-        while buf[offset + name_size - 1] != 0:
-            name_size += 8
+        null_location = buf.index(b'\x00', offset)
+        name_size = _padded_size(null_location - offset, 8)
         name = buf[offset:offset+name_size]
         name = name.strip(b'\x00').decode('utf-8')
         offset += name_size
