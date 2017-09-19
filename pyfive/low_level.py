@@ -515,7 +515,7 @@ class DataObjects(object):
 
         # read in the datatype information
         try:
-            dtype = determine_dtype(self.msg_data, offset)
+            dtype = determine_dtype(self.msg_data, offset)[0]
         except NotImplementedError:
             warnings.warn(
                 'Attribute %s type not implemented, set to None.' % (name, ))
@@ -596,7 +596,7 @@ class DataObjects(object):
         """ Datatype of the dataset. """
         msg = self.find_msg_type(DATATYPE_MSG_TYPE)[0]
         msg_offset = msg['offset_to_message']
-        return determine_dtype(self.msg_data, msg_offset)
+        return determine_dtype(self.msg_data, msg_offset)[0]
 
     @property
     def chunks(self):
@@ -876,24 +876,25 @@ def determine_dtype(buf, offset):
     Return the numpy dtype from a buffer pointing to a Datatype message.
     """
     datatype_msg = _unpack_struct_from(DATATYPE_MSG, buf, offset)
+    offset += DATATYPE_MSG_SIZE
     datatype_class = datatype_msg['class_and_version'] & 0x0F  # last 4 bits
 
     if datatype_class == DATATYPE_FIXED_POINT:
-        return _determine_dtype_fixed_point(datatype_msg)
+        return _determine_dtype_fixed_point(datatype_msg, offset)
     elif datatype_class == DATATYPE_FLOATING_POINT:
-        return _determine_dtype_floating_point(datatype_msg)
+        return _determine_dtype_floating_point(datatype_msg, offset)
     elif datatype_class == DATATYPE_TIME:
         raise NotImplementedError("Time datatype class not supported.")
     elif datatype_class == DATATYPE_STRING:
-        return _determine_dtype_string(datatype_msg)
+        return _determine_dtype_string(datatype_msg, offset)
     elif datatype_class == DATATYPE_BITFIELD:
         raise NotImplementedError("Bitfield datatype class not supported.")
     elif datatype_class == DATATYPE_OPAQUE:
         raise NotImplementedError("Opaque datatype class not supported.")
     elif datatype_class == DATATYPE_COMPOUND:
-        raise NotImplementedError("Compound datatype class not supported.")
+        return _determine_dtype_compound(datatype_msg, buf, offset)
     elif datatype_class == DATATYPE_REFERENCE:
-        return ('REFERENCE', datatype_msg['size'])
+        return ('REFERENCE', datatype_msg['size']), offset
     elif datatype_class == DATATYPE_ENUMERATED:
         raise NotImplementedError("Enumerated datatype class not supported.")
     elif datatype_class == DATATYPE_ARRAY:
@@ -901,14 +902,71 @@ def determine_dtype(buf, offset):
     elif datatype_class == DATATYPE_VARIABLE_LENGTH:
         vlen_type = _determine_dtype_vlen(datatype_msg)
         if vlen_type[0] == 'VLEN_SEQUENCE':
-            base_type = determine_dtype(buf, offset+8)
+            base_type, offset = determine_dtype(buf, offset)
             vlen_type = ('VLEN_SEQUENCE', base_type)
-        return vlen_type
+        return vlen_type, offset
     else:
         raise InvalidHDF5File('Invalid datatype class %i' % (datatype_class))
 
 
-def _determine_dtype_fixed_point(datatype_msg):
+def _determine_dtype_compound(datatype_msg, buf, offset):
+    """ Return the dtype of a compound class if supported. """
+
+    bit_field_0 = datatype_msg['class_bit_field_0']
+    bit_field_1 = datatype_msg['class_bit_field_1']
+    n_comp = bit_field_0 + (bit_field_1 << 4)
+
+    # read in the members of the compound datatype
+    members = []
+    for _ in range(n_comp):
+        name_size = 8
+        while buf[offset + name_size - 1] != 0:
+            name_size += 8
+        name = buf[offset:offset+name_size]
+        name = name.strip(b'\x00').decode('utf-8')
+        offset += name_size
+
+        prop_desc = _unpack_struct_from(COMPOUND_PROP_DESC_V1, buf, offset)
+        offset += COMPOUND_PROP_DESC_V1_SIZE
+
+        comp_dtype, offset = determine_dtype(buf, offset)
+        members.append((name, prop_desc, comp_dtype))
+
+    # determine if the compound dtype is complex64/complex128
+    if len(members) == 2:
+        name1, prop1, dtype1 = members[0]
+        name2, prop2, dtype2 = members[1]
+        names_valid = (name1 == 'r' and name2 == 'i')
+        complex_dtype_map = {
+            '>f4': '>c8',
+            '<f4': '<c8',
+            '>f8': '>c16',
+            '<f8': '<c16',
+        }
+        dtypes_valid = (dtype1 == dtype2) and dtype1 in complex_dtype_map
+        half = datatype_msg['size'] // 2
+        offsets_valid = (prop1['offset'] == 0 and prop2['offset'] == half)
+        props_valid = (
+            prop1['dimensionality'] == 0 and
+            prop1['permutation'] == 0 and
+            prop1['dim_size_1'] == 0 and
+            prop1['dim_size_2'] == 0 and
+            prop1['dim_size_3'] == 0 and
+            prop1['dim_size_4'] == 0 and
+            prop2['dimensionality'] == 0 and
+            prop2['permutation'] == 0 and
+            prop2['dim_size_1'] == 0 and
+            prop2['dim_size_2'] == 0 and
+            prop2['dim_size_3'] == 0 and
+            prop2['dim_size_4'] == 0
+        )
+        if names_valid and dtypes_valid and offsets_valid and props_valid:
+            return complex_dtype_map[dtype1], offset
+
+    raise NotImplementedError("Compond dtype not supported.")
+
+
+def _determine_dtype_fixed_point(datatype_msg, offset):
     """ Return the NumPy dtype for a fixed point class. """
     # fixed-point types are assumed to follow IEEE standard format
     length_in_bytes = datatype_msg['size']
@@ -927,10 +985,14 @@ def _determine_dtype_fixed_point(datatype_msg):
     else:
         byte_order_char = '>'  # big-endian
 
-    return byte_order_char + dtype_char + str(length_in_bytes)
+    # 4-byte fixed-point property description
+    # not read, assumed to be IEEE standard format
+    offset += 4
+
+    return byte_order_char + dtype_char + str(length_in_bytes), offset
 
 
-def _determine_dtype_floating_point(datatype_msg):
+def _determine_dtype_floating_point(datatype_msg, offset):
     """ Return the NumPy dtype for a floating point class. """
     # Floating point types are assumed to follow IEEE standard formats
     length_in_bytes = datatype_msg['size']
@@ -945,12 +1007,16 @@ def _determine_dtype_floating_point(datatype_msg):
     else:
         byte_order_char = '>'  # big-endian
 
-    return byte_order_char + dtype_char + str(length_in_bytes)
+    # 12-bytes floating-point property description
+    # not read, assumed to be IEEE standard format
+    offset += 12
+
+    return byte_order_char + dtype_char + str(length_in_bytes), offset
 
 
-def _determine_dtype_string(datatype_msg):
+def _determine_dtype_string(datatype_msg, offset):
     """ Return the NumPy dtype for a string class. """
-    return 'S' + str(datatype_msg['size'])
+    return 'S' + str(datatype_msg['size']), offset
 
 
 def _determine_dtype_vlen(datatype_msg):
@@ -1176,6 +1242,23 @@ DATATYPE_MSG = OrderedDict((
     ('class_bit_field_2', 'B'),
     ('size', 'I'),
 ))
+DATATYPE_MSG_SIZE = _structure_size(DATATYPE_MSG)
+
+
+COMPOUND_PROP_DESC_V1 = OrderedDict((
+    ('offset', 'I'),
+    ('dimensionality', 'B'),
+    ('reserved_0', 'B'),
+    ('reserved_1', 'B'),
+    ('reserved_2', 'B'),
+    ('permutation', 'I'),
+    ('reserved_3', 'I'),
+    ('dim_size_1', 'I'),
+    ('dim_size_2', 'I'),
+    ('dim_size_3', 'I'),
+    ('dim_size_4', 'I'),
+))
+COMPOUND_PROP_DESC_V1_SIZE = _structure_size(COMPOUND_PROP_DESC_V1)
 
 #
 HEADER_MSG_INFO_V1 = OrderedDict((
