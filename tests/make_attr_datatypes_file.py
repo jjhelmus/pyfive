@@ -77,11 +77,11 @@ attrs.create('vlen_float32', val, dtype=dt)
 
 # TODO more complex datatypes
 # complex H5T_COMPOUND
-#attrs.create('complex64_little', 123+456.j, dtype='<c8')
-#attrs.create('complex128_little', 123+456.j, dtype='<c16')
+attrs.create('complex64_little', 123+456.j, dtype='<c8')
+attrs.create('complex128_little', 123+456.j, dtype='<c16')
 
-#attrs.create('complex64_big', 123+456.j, dtype='<c8')
-#attrs.create('complex128_big', 123+456.j, dtype='<c16')
+attrs.create('complex64_big', 123+456.j, dtype='<c8')
+attrs.create('complex128_big', 123+456.j, dtype='<c16')
 
 # booleans  HT5_ENUM
 #attrs.create('bool', True, dtype=np.bool_)
