@@ -43,6 +43,17 @@ def test_numeric_scalar_attr_datatypes():
         assert hfile.attrs['float64_big'] == 123.
 
 
+def test_complex_scalar_attr_datatypes():
+
+    with pyfive.File(ATTR_DATATYPES_HDF5_FILE) as hfile:
+
+        assert hfile.attrs['complex64_little'] == (123 + 456j)
+        assert hfile.attrs['complex128_little'] == (123 + 456j)
+
+        assert hfile.attrs['complex64_big'] == (123 + 456j)
+        assert hfile.attrs['complex128_big'] == (123 + 456j)
+
+
 def test_string_scalar_attr_datatypes():
 
     with pyfive.File(ATTR_DATATYPES_HDF5_FILE) as hfile:
