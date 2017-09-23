@@ -311,7 +311,7 @@ class Dataset(object):
     @property
     def fletcher32(self):
         """ fletcher32 attribute. """
-        return False  # TODO support fletcher32 checksumming
+        return self._dataobjects.fletcher32
 
     @property
     def fillvalue(self):

@@ -258,10 +258,38 @@ class BTreeRawDataChunks(object):
                     end = (j+1) * step
                     unshuffled_buffer[j::itemsize] = chunk_buffer[start:end]
                 chunk_buffer = unshuffled_buffer
+            elif filter_id == FLETCH32_FILTER:
+                _verify_fletcher32(chunk_buffer)
+                # strip off checksum
+                checksum = chunk_buffer[-4:]
+                chunk_buffer = chunk_buffer[:-4]
             else:
                 raise NotImplementedError(
                     "Filter with id: %i import supported" % (filter_id))
         return chunk_buffer
+
+
+def _verify_fletcher32(chunk_buffer):
+
+    # calculate checksums
+    if len(chunk_buffer) % 2:
+        arr = np.fromstring(chunk_buffer[:-4]+b'\x00', '<u2')
+    else:
+        arr = np.fromstring(chunk_buffer[:-4], '<u2')
+    sum1 = sum2 = 0
+    for i in arr:
+        sum1 = (sum1 + i) % 65535
+        sum2 = (sum2 + sum1) % 65535
+
+    # extract stored checksums
+    ref_sum1, ref_sum2 = np.fromstring(chunk_buffer[-4:], '>u2')
+    ref_sum1 = ref_sum1 % 65535
+    ref_sum2 = ref_sum2 % 65535
+
+    # compare
+    if sum1 != ref_sum1 or sum2 != ref_sum2:
+        raise ValueError("fletcher32 checksum invalid")
+    return True
 
 
 class Heap(object):
@@ -631,6 +659,13 @@ class DataObjects(object):
         if self._filter_ids is None:
             return False
         return SHUFFLE_FILTER in self._filter_ids
+
+    @property
+    def fletcher32(self):
+        """ Boolean indicator if fletcher32 filter was applied. """
+        if self._filter_ids is None:
+            return False
+        return FLETCH32_FILTER in self._filter_ids
 
     @property
     def _filter_ids(self):
