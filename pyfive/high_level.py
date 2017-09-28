@@ -316,7 +316,7 @@ class Dataset(object):
     @property
     def fillvalue(self):
         """ fillvalue attribute. """
-        raise NotImplementedError
+        return self._dataobjects.fillvalue
 
     @property
     def dims(self):

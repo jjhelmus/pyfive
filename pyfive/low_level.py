@@ -620,6 +620,37 @@ class DataObjects(object):
         return determine_data_shape(self.msg_data, msg_offset)
 
     @property
+    def fillvalue(self):
+        """ Fillvalue of the dataset. """
+        msg = self.find_msg_type(FILLVALUE_MSG_TYPE)[0]
+        offset = msg['offset_to_message']
+        version = struct.unpack_from('<B', self.msg_data, offset)[0]
+        if version == 1 or version == 2:
+            info = _unpack_struct_from(FILLVAL_MSG_V1V2, self.msg_data, offset)
+            offset += FILLVAL_MSG_V1V2_SIZE
+            is_defined = info['fillvalue_defined']
+        elif version == 3:
+            info = _unpack_struct_from(FILLVAL_MSG_V3, self.msg_data, offset)
+            offset += FILLVAL_MSG_V3_SIZE
+            is_defined = info['flags'] & 2**5
+        else:
+            raise InvalidHDF5File(
+                "Unknown fillvalue msg version:" + str(version))
+
+        if is_defined:
+            size = struct.unpack_from('<I', self.msg_data, offset)[0]
+            offset += 4
+        else:
+            size = 0
+
+        if size:
+            payload = self.msg_data[offset:offset+size]
+            fillvalue = np.fromstring(payload, self.dtype, count=1)[0]
+        else:
+            fillvalue = 0
+        return fillvalue
+
+    @property
     def dtype(self):
         """ Datatype of the dataset. """
         msg = self.find_msg_type(DATATYPE_MSG_TYPE)[0]
@@ -1317,6 +1348,22 @@ SYMBOL_TABLE_MSG = OrderedDict((
     ('btree_address', 'Q'),     # 8 bytes addressing
     ('heap_address', 'Q'),      # 8 byte addressing
 ))
+
+# IV.A.2.f. The Data Storage - Fill Value Message
+FILLVAL_MSG_V1V2 = OrderedDict((
+    ('version', 'B'),
+    ('space_allocation_time', 'B'),
+    ('fillvalue_write_time', 'B'),
+    ('fillvalue_defined', 'B'),
+))
+FILLVAL_MSG_V1V2_SIZE = _structure_size(FILLVAL_MSG_V1V2)
+
+FILLVAL_MSG_V3 = OrderedDict((
+    ('version', 'B'),
+    ('flags', 'B'),
+))
+FILLVAL_MSG_V3_SIZE = _structure_size(FILLVAL_MSG_V3)
+
 
 # IV.A.2.l The Data Storage - Filter Pipeline message
 FILTER_PIPELINE_DESCR_V1 = OrderedDict((
