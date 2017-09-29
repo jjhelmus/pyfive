@@ -91,7 +91,7 @@ class Group(Mapping):
         return that value from the visit method.
 
         """
-        raise NotImplementedError
+        return self.visititems(lambda name, obj: func(name))
 
     def visititems(self, func):
         """
@@ -105,7 +105,19 @@ class Group(Mapping):
         return that value from the visit method.
 
         """
-        raise NotImplementedError
+        root_name_length = len(self.name)
+        if not self.name.endswith('/'):
+            root_name_length += 1
+        queue = deque(self.values())
+        while queue:
+            obj = queue.popleft()
+            name = obj.name[root_name_length:]
+            ret = func(name, obj)
+            if ret is not None:
+                return ret
+            if isinstance(obj, Group):
+                queue.extend(obj.values())
+        return None
 
     @property
     def attrs(self):
@@ -167,15 +179,10 @@ class File(Group):
 
     def _get_object_by_address(self, obj_addr):
         """ Return the object pointed to by a given address. """
-        # breadth first search of the file hierarchy for the given address
-        queue = deque([self])
-        while queue:
-            obj = queue.popleft()
-            if obj._dataobjects.offset == obj_addr:
-                return obj
-            if isinstance(obj, Group):
-                queue.extend(child for child in obj.values())
-        return None
+        if self._dataobjects.offset == obj_addr:
+            return self
+        return self.visititems(
+            lambda x, y: y if y._dataobjects.offset == obj_addr else None)
 
     def close(self):
         """ Close the file. """
