@@ -1,6 +1,7 @@
 """ High-level classes for reading HDF5 files.  """
 
 from collections import Mapping, deque, Sequence
+import os
 from io import open     # Python 2.7 requires for a Buffered Reader
 
 import numpy as np
@@ -38,6 +39,9 @@ class Group(Mapping):
         self._links = dataobjects.get_links()
         self._dataobjects = dataobjects
         self._attrs = None  # cached property
+
+    def __repr__(self):
+        return '<HDF5 group "%s" (%d members)>' % (self.name, len(self))
 
     def __len__(self):
         """ Number of links in the group. """
@@ -177,6 +181,9 @@ class File(Group):
         self.userblock_size = 0
         super(File, self).__init__('/', dataobjects, self)
 
+    def __repr__(self):
+        return '<HDF5 file "%s" (mode r)>' % (os.path.basename(self.filename))
+
     def _get_object_by_address(self, obj_addr):
         """ Return the object pointed to by a given address. """
         if self._dataobjects.offset == obj_addr:
@@ -252,6 +259,10 @@ class Dataset(object):
 
         self._dataobjects = dataobjects
         self._attrs = None
+
+    def __repr__(self):
+        info = (os.path.basename(self.name), self.shape, self.dtype)
+        return '<HDF5 dataset "%s": shape %s, type "%s">' % info
 
     def __getitem__(self, args):
         return self._dataobjects.get_data()[args]
