@@ -6,7 +6,9 @@ from io import open     # Python 2.7 requires for a Buffered Reader
 
 import numpy as np
 
-from .low_level import SuperBlock, DataObjects, Reference
+from .core import Reference
+from .low_level import DataObjects
+from .misc_low_level import SuperBlock
 
 
 class Group(Mapping):
