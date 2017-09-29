@@ -1,4 +1,4 @@
-""" Low-level classes for reading HDF5 files.  """
+""" HDF5 dataobjects objects.  """
 
 from __future__ import division
 

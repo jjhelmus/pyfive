@@ -7,7 +7,7 @@ from io import open     # Python 2.7 requires for a Buffered Reader
 import numpy as np
 
 from .core import Reference
-from .low_level import DataObjects
+from .dataobjects import DataObjects
 from .misc_low_level import SuperBlock
 
 
