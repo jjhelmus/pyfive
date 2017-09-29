@@ -1,5 +1,7 @@
 """ Core low-level functions and classes used by multiple pyfive modules. """
 
+from __future__ import division
+
 from collections import OrderedDict
 from math import ceil
 import struct
