@@ -56,14 +56,11 @@ class Group(Mapping):
                 raise ValueError('cannot deference null reference')
             obj = self.file._get_object_by_address(y.address_of_reference)
             if obj is None:
-                dataobjects = DataObjects(
-                    self.file._fh, y.address_of_reference)
-                if dataobjects.is_dataset:
-                    return Dataset(None, dataobjects, None, alt_file=self.file)
-                else:
-                    return Group(None, dataobjects, None, alt_file=self.file)
-            else:
-                return obj
+                dataobjs = DataObjects(self.file._fh, y.address_of_reference)
+                if dataobjs.is_dataset:
+                    return Dataset(None, dataobjs, None, alt_file=self.file)
+                return Group(None, dataobjs, None, alt_file=self.file)
+            return obj
 
         y = y.strip('/')
 
@@ -75,11 +72,10 @@ class Group(Mapping):
         else:
             sep = '/'
 
-        dataobjects = DataObjects(self.file._fh, self._links[y])
-        if dataobjects.is_dataset:
-            return Dataset(self.name + sep + y, dataobjects, self)
-        else:
-            return Group(self.name + sep + y, dataobjects, self)
+        dataobjs = DataObjects(self.file._fh, self._links[y])
+        if dataobjs.is_dataset:
+            return Dataset(self.name + sep + y, dataobjs, self)
+        return Group(self.name + sep + y, dataobjs, self)
 
     def __iter__(self):
         for k in self._links.keys():
@@ -202,7 +198,7 @@ class File(Group):
     def __enter__(self):
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, exc_type, value, traceback):
         self.close()
 
 

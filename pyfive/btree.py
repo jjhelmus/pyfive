@@ -170,8 +170,8 @@ class BTreeRawDataChunks(object):
         non_padded_region = [slice(i) for i in data_shape]
         return data[non_padded_region]
 
-    def _filter_chunk(
-            self, chunk_buffer, filter_mask, filter_pipeline, itemsize):
+    @staticmethod
+    def _filter_chunk(chunk_buffer, filter_mask, filter_pipeline, itemsize):
         """ Apply decompression filters to a chunk of data. """
         num_filters = len(filter_pipeline)
         for i, pipeline_entry in enumerate(filter_pipeline[::-1]):
@@ -197,8 +197,7 @@ class BTreeRawDataChunks(object):
                 chunk_buffer = unshuffled_buffer
             elif filter_id == FLETCH32_FILTER:
                 _verify_fletcher32(chunk_buffer)
-                # strip off checksum
-                checksum = chunk_buffer[-4:]
+                # strip off 4-byte checksum from end of buffer
                 chunk_buffer = chunk_buffer[:-4]
             else:
                 raise NotImplementedError(
@@ -207,7 +206,7 @@ class BTreeRawDataChunks(object):
 
 
 def _verify_fletcher32(chunk_buffer):
-
+    """ Verify a chunk with a fletcher32 checksum. """
     # calculate checksums
     if len(chunk_buffer) % 2:
         arr = np.fromstring(chunk_buffer[:-4]+b'\x00', '<u2')

@@ -97,7 +97,8 @@ class DatatypeMessage(object):
 
         return byte_order_char + dtype_char + str(length_in_bytes)
 
-    def _determine_dtype_string(self, datatype_msg):
+    @staticmethod
+    def _determine_dtype_string(datatype_msg):
         """ Return the NumPy dtype for a string class. """
         return 'S' + str(datatype_msg['size'])
 
@@ -156,7 +157,8 @@ class DatatypeMessage(object):
 
         raise NotImplementedError("Compond dtype not supported.")
 
-    def _determine_dtype_vlen(self, datatype_msg):
+    @staticmethod
+    def _determine_dtype_vlen(datatype_msg):
         """ Return the dtype information for a variable length class. """
         vlen_type = datatype_msg['class_bit_field_0'] & 0x01
         if vlen_type != 1:

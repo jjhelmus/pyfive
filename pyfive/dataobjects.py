@@ -297,8 +297,7 @@ class DataObjects(object):
             return None
         if GZIP_DEFLATE_FILTER in self._filter_ids:
             return 'gzip'
-        else:
-            return None
+        return None
 
     @property
     def compression_opts(self):
@@ -339,7 +338,7 @@ class DataObjects(object):
             return self._filter_pipeline  # use cached value
 
         filter_msgs = self.find_msg_type(DATA_STORAGE_FILTER_PIPELINE_MSG_TYPE)
-        if len(filter_msgs) == 0:
+        if not filter_msgs:
             self._filter_pipeline = None
             return self._filter_pipeline
 
@@ -487,10 +486,9 @@ class DataObjects(object):
     def get_links(self):
         """ Return a dictionary of link_name: offset """
         sym_tbl_msgs = self.find_msg_type(SYMBOL_TABLE_MSG_TYPE)
-        if len(sym_tbl_msgs):
+        if sym_tbl_msgs:
             return self._get_links_from_symbol_tables(sym_tbl_msgs)
-        else:
-            return self._get_links_from_link_msgs()
+        return self._get_links_from_link_msgs()
 
     def _get_links_from_symbol_tables(self, sym_tbl_msgs):
         """ Return a dict of link_name: offset from a symbol table. """
