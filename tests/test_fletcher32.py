@@ -6,7 +6,7 @@ import numpy as np
 from numpy.testing import assert_array_equal
 
 import pyfive
-from pyfive.low_level import _verify_fletcher32
+from pyfive.btree import _verify_fletcher32
 
 DIRNAME = os.path.dirname(__file__)
 DATASET_FLETCHER_HDF5_FILE = os.path.join(DIRNAME, 'fletcher32.hdf5')
