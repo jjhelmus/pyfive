@@ -10,6 +10,21 @@ class InvalidHDF5File(Exception):
     pass
 
 
+class Reference(object):
+    """
+    HDF5 Reference.
+    """
+
+    def __init__(self, address_of_reference):
+        self.address_of_reference = address_of_reference
+
+    def __bool__(self):
+        # False for null references (address of 0) True otherwise
+        return bool(self.address_of_reference)
+
+    __nonzero__ = __bool__  # Python 2.x requires __nonzero__ for truth value
+
+
 def _padded_size(size, padding_multipe=8):
     """ Return the size of a field padded to be a multiple a give value. """
     return int(ceil(size / padding_multipe) * padding_multipe)
