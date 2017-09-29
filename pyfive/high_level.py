@@ -179,15 +179,10 @@ class File(Group):
 
     def _get_object_by_address(self, obj_addr):
         """ Return the object pointed to by a given address. """
-        # breadth first search of the file hierarchy for the given address
-        queue = deque([self])
-        while queue:
-            obj = queue.popleft()
-            if obj._dataobjects.offset == obj_addr:
-                return obj
-            if isinstance(obj, Group):
-                queue.extend(child for child in obj.values())
-        return None
+        if self._dataobjects.offset == obj_addr:
+            return self
+        return self.visititems(
+            lambda x, y: y if y._dataobjects.offset == obj_addr else None)
 
     def close(self):
         """ Close the file. """
