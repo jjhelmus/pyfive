@@ -91,7 +91,7 @@ class Group(Mapping):
         return that value from the visit method.
 
         """
-        raise NotImplementedError
+        return self.visititems(lambda name, obj: func(name))
 
     def visititems(self, func):
         """
@@ -105,7 +105,19 @@ class Group(Mapping):
         return that value from the visit method.
 
         """
-        raise NotImplementedError
+        root_name_length = len(self.name)
+        if not self.name.endswith('/'):
+            root_name_length += 1
+        queue = deque(self.values())
+        while queue:
+            obj = queue.popleft()
+            name = obj.name[root_name_length:]
+            ret = func(name, obj)
+            if ret is not None:
+                return ret
+            if isinstance(obj, Group):
+                queue.extend(obj.values())
+        return None
 
     @property
     def attrs(self):
