@@ -49,18 +49,22 @@ class Group(Mapping):
         """ Number of links in the group. """
         return len(self._links)
 
+    def _dereference(self, ref):
+        """ Deference a Reference object. """
+        if not ref:
+            raise ValueError('cannot deference null reference')
+        obj = self.file._get_object_by_address(ref.address_of_reference)
+        if obj is None:
+            dataobjects = DataObjects(self.file._fh, ref.address_of_reference)
+            if dataobjects.is_dataset:
+                return Dataset(None, dataobjects, None, alt_file=self.file)
+            return Group(None, dataobjects, None, alt_file=self.file)
+        return obj
+
     def __getitem__(self, y):
         """ x.__getitem__(y) <==> x[y] """
         if isinstance(y, Reference):
-            if not y:
-                raise ValueError('cannot deference null reference')
-            obj = self.file._get_object_by_address(y.address_of_reference)
-            if obj is None:
-                dataobjs = DataObjects(self.file._fh, y.address_of_reference)
-                if dataobjs.is_dataset:
-                    return Dataset(None, dataobjs, None, alt_file=self.file)
-                return Group(None, dataobjs, None, alt_file=self.file)
-            return obj
+            return self._dereference(y)
 
         y = y.strip('/')
 
