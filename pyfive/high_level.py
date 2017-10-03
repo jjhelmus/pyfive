@@ -74,7 +74,7 @@ class Group(Mapping):
             return self.file[path[1:]]
 
         if posixpath.dirname(path) != '':
-            next_obj, additional_obj = path.split('/', maxsplit=1)
+            next_obj, additional_obj = path.split('/', 1)
         else:
             next_obj = path
             additional_obj = '.'
