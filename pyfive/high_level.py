@@ -270,13 +270,17 @@ class Dataset(object):
 
         self._dataobjects = dataobjects
         self._attrs = None
+        self._astype = None
 
     def __repr__(self):
         info = (os.path.basename(self.name), self.shape, self.dtype)
         return '<HDF5 dataset "%s": shape %s, type "%s">' % info
 
     def __getitem__(self, args):
-        return self._dataobjects.get_data()[args]
+        data = self._dataobjects.get_data()[args]
+        if self._astype is None:
+            return data
+        return data.astype(self._astype)
 
     def read_direct(self, array, source_sel=None, dset_sel=None):
         """ Read from a HDF5 dataset directly into a NumPy array. """
@@ -285,8 +289,10 @@ class Dataset(object):
     def astype(self, dtype):
         """
         Return a context manager which returns data as a particular type.
+
+        Conversion is handled by NumPy after reading extracting the data.
         """
-        raise NotImplementedError
+        return AstypeContext(self, dtype)
 
     def len(self):
         """ Return the size of the first axis. """
@@ -394,3 +400,19 @@ class DimensionProxy(Sequence):
 
     def __getitem__(self, x):
         return self._file[self._refs[x]]
+
+
+class AstypeContext(object):
+    """
+    Context manager which allows changing the type read from a dataset.
+    """
+
+    def __init__(self, dset, dtype):
+        self._dset = dset
+        self._dtype = np.dtype(dtype)
+
+    def __enter__(self):
+        self._dset._astype = self._dtype
+
+    def __exit__(self, *args):
+        self._dset._astype = None

@@ -155,3 +155,14 @@ def test_get_objects_by_path():
         assert_raises(KeyError, hfile.__getitem__, 'group1/fake')
         assert_raises(KeyError, hfile.__getitem__, 'group1/subgroup1/fake')
         assert_raises(KeyError, hfile.__getitem__, 'group1/dataset2/fake')
+
+
+def test_astype():
+
+    with pyfive.File(EARLIEST_HDF5_FILE) as hfile:
+        dset1 = hfile['dataset1']
+        assert dset1.dtype == np.dtype('<i4')
+        with dset1.astype('i2'):
+            assert dset1[:].dtype == np.dtype('i2')
+        with dset1.astype('f8'):
+            assert dset1[:].dtype == np.dtype('f8')
