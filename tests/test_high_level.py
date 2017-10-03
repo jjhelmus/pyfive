@@ -166,3 +166,21 @@ def test_astype():
             assert dset1[:].dtype == np.dtype('i2')
         with dset1.astype('f8'):
             assert dset1[:].dtype == np.dtype('f8')
+
+
+def test_read_direct():
+
+    with pyfive.File(EARLIEST_HDF5_FILE) as hfile:
+        dset1 = hfile['dataset1']
+
+        arr = np.zeros(4)
+        dset1.read_direct(arr)
+        assert_array_equal(arr, [0, 1, 2, 3])
+
+        arr = np.zeros(4)
+        dset1.read_direct(arr, np.s_[:2], np.s_[:2])
+        assert_array_equal(arr, [0, 1, 0, 0])
+
+        arr = np.zeros(4)
+        dset1.read_direct(arr, np.s_[1:3], np.s_[2:])
+        assert_array_equal(arr, [0, 0, 1, 2])

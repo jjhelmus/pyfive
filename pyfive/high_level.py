@@ -282,9 +282,17 @@ class Dataset(object):
             return data
         return data.astype(self._astype)
 
-    def read_direct(self, array, source_sel=None, dset_sel=None):
-        """ Read from a HDF5 dataset directly into a NumPy array. """
-        raise NotImplementedError
+    def read_direct(self, array, source_sel=None, dest_sel=None):
+        """
+        Read from a HDF5 dataset directly into a NumPy array.
+
+        This is equivalent to dset[source_sel] = arr[dset_sel].
+
+        Creation of intermediates is not avoided. This method if provided from
+        compatibility with h5py, it is not efficient.
+
+        """
+        array[dest_sel] = self[source_sel]
 
     def astype(self, dtype):
         """
