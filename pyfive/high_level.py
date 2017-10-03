@@ -3,6 +3,7 @@
 from collections import Mapping, deque, Sequence
 import os
 from io import open     # Python 2.7 requires for a Buffered Reader
+import posixpath
 
 import numpy as np
 
@@ -49,33 +50,45 @@ class Group(Mapping):
         """ Number of links in the group. """
         return len(self._links)
 
+    def _dereference(self, ref):
+        """ Deference a Reference object. """
+        if not ref:
+            raise ValueError('cannot deference null reference')
+        obj = self.file._get_object_by_address(ref.address_of_reference)
+        if obj is None:
+            dataobjects = DataObjects(self.file._fh, ref.address_of_reference)
+            if dataobjects.is_dataset:
+                return Dataset(None, dataobjects, None, alt_file=self.file)
+            return Group(None, dataobjects, None, alt_file=self.file)
+        return obj
+
     def __getitem__(self, y):
         """ x.__getitem__(y) <==> x[y] """
         if isinstance(y, Reference):
-            if not y:
-                raise ValueError('cannot deference null reference')
-            obj = self.file._get_object_by_address(y.address_of_reference)
-            if obj is None:
-                dataobjs = DataObjects(self.file._fh, y.address_of_reference)
-                if dataobjs.is_dataset:
-                    return Dataset(None, dataobjs, None, alt_file=self.file)
-                return Group(None, dataobjs, None, alt_file=self.file)
-            return obj
+            return self._dereference(y)
 
-        y = y.strip('/')
+        path = posixpath.normpath(y)
+        if path == '.':
+            return self
+        if path.startswith('/'):
+            return self.file[path[1:]]
 
-        if y not in self._links:
-            raise KeyError('%s not found in group' % (y))
-
-        if self.name == '/':
-            sep = ''
+        if posixpath.dirname(path) != '':
+            next_obj, additional_obj = path.split('/', 1)
         else:
-            sep = '/'
+            next_obj = path
+            additional_obj = '.'
 
-        dataobjs = DataObjects(self.file._fh, self._links[y])
+        if next_obj not in self._links:
+            raise KeyError('%s not found in group' % (next_obj))
+
+        obj_name = posixpath.join(self.name, next_obj)
+        dataobjs = DataObjects(self.file._fh, self._links[next_obj])
         if dataobjs.is_dataset:
-            return Dataset(self.name + sep + y, dataobjs, self)
-        return Group(self.name + sep + y, dataobjs, self)
+            if additional_obj != '.':
+                raise KeyError('%s is a dataset, not a group' % (obj_name))
+            return Dataset(obj_name, dataobjs, self)
+        return Group(obj_name, dataobjs, self)[additional_obj]
 
     def __iter__(self):
         for k in self._links.keys():
