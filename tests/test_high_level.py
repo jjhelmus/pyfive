@@ -138,3 +138,20 @@ def test_dataset_class():
 
         assert dset1.parent.name == '/'
         assert dset2.parent.name == '/group1'
+
+
+def test_get_objects_by_path():
+    # gh-15
+
+    with pyfive.File(EARLIEST_HDF5_FILE) as hfile:
+        grp = hfile['/group1']
+
+        assert hfile['/group1/subgroup1'].name == '/group1/subgroup1'
+        assert grp['/group1/subgroup1'].name == '/group1/subgroup1'
+
+        dset2 = hfile['group1/dataset2/']
+        assert dset2.name == '/group1/dataset2'
+
+        assert_raises(KeyError, hfile.__getitem__, 'group1/fake')
+        assert_raises(KeyError, hfile.__getitem__, 'group1/subgroup1/fake')
+        assert_raises(KeyError, hfile.__getitem__, 'group1/dataset2/fake')
