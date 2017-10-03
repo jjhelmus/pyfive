@@ -3,6 +3,7 @@
 from collections import Mapping, deque, Sequence
 import os
 from io import open     # Python 2.7 requires for a Buffered Reader
+import posixpath
 
 import numpy as np
 
@@ -66,20 +67,28 @@ class Group(Mapping):
         if isinstance(y, Reference):
             return self._dereference(y)
 
-        y = y.strip('/')
+        path = posixpath.normpath(y)
+        if path == '.':
+            return self
+        if path.startswith('/'):
+            return self.file[path[1:]]
 
-        if y not in self._links:
-            raise KeyError('%s not found in group' % (y))
-
-        if self.name == '/':
-            sep = ''
+        if posixpath.dirname(path) != '':
+            next_obj, additional_obj = path.split('/', maxsplit=1)
         else:
-            sep = '/'
+            next_obj = path
+            additional_obj = '.'
 
-        dataobjs = DataObjects(self.file._fh, self._links[y])
+        if next_obj not in self._links:
+            raise KeyError('%s not found in group' % (next_obj))
+
+        obj_name = posixpath.join(self.name, next_obj)
+        dataobjs = DataObjects(self.file._fh, self._links[next_obj])
         if dataobjs.is_dataset:
-            return Dataset(self.name + sep + y, dataobjs, self)
-        return Group(self.name + sep + y, dataobjs, self)
+            if additional_obj != '.':
+                raise KeyError('%s is a dataset, not a group' % (obj_name))
+            return Dataset(obj_name, dataobjs, self)
+        return Group(obj_name, dataobjs, self)[additional_obj]
 
     def __iter__(self):
         for k in self._links.keys():
