@@ -322,6 +322,13 @@ class Dataset(object):
         return self._dataobjects.dtype
 
     @property
+    def value(self):
+        """ alias for dataset[()]. """
+        DeprecationWarning(
+            "dataset.value has been deprecated. Use dataset[()] instead.")
+        return self[()]
+
+    @property
     def size(self):
         """ size attribute. """
         return np.prod(self.shape)
