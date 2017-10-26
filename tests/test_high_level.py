@@ -92,6 +92,9 @@ def test_dataset_class():
         assert_array_equal(dset1[:], np.arange(4))
         assert_array_equal(dset2[:], np.arange(4))
 
+        assert_array_equal(dset1.value, np.arange(4))
+        assert_array_equal(dset2.value, np.arange(4))
+
         assert dset1.len() == 4
         assert dset2.len() == 4
 
