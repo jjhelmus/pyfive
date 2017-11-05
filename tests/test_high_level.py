@@ -187,3 +187,19 @@ def test_read_direct():
         arr = np.zeros(4)
         dset1.read_direct(arr, np.s_[1:3], np.s_[2:])
         assert_array_equal(arr, [0, 0, 1, 2])
+
+
+def test_raise_error_noseek():
+    class MockNoSeek(object):
+        def read(self):
+            return b'fakedata'
+    f = MockNoSeek()
+    assert_raises(ValueError, pyfive.File, f)
+
+
+def test_raise_error_invalid_dereference():
+    class MockReference(object):
+        address_of_reference = 999
+    mockref = MockReference()
+    with pyfive.File(EARLIEST_HDF5_FILE) as hfile:
+        assert_raises(ValueError, hfile._dereference, mockref)

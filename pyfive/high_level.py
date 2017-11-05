@@ -29,14 +29,11 @@ class Group(Mapping):
 
     """
 
-    def __init__(self, name, dataobjects, parent, alt_file=None):
+    def __init__(self, name, dataobjects, parent):
         """ initalize. """
 
         self.parent = parent
-        if alt_file is None:
-            self.file = parent.file
-        else:
-            self.file = alt_file
+        self.file = parent.file
         self.name = name
 
         self._links = dataobjects.get_links()
@@ -56,10 +53,7 @@ class Group(Mapping):
             raise ValueError('cannot deference null reference')
         obj = self.file._get_object_by_address(ref.address_of_reference)
         if obj is None:
-            dataobjects = DataObjects(self.file._fh, ref.address_of_reference)
-            if dataobjects.is_dataset:
-                return Dataset(None, dataobjects, None, alt_file=self.file)
-            return Group(None, dataobjects, None, alt_file=self.file)
+            raise ValueError('reference not found in file')
         return obj
 
     def __getitem__(self, y):
@@ -172,12 +166,12 @@ class File(Group):
 
     def __init__(self, filename):
         """ initalize. """
+        self._close = False
         if hasattr(filename, 'read'):
             if not hasattr(filename, 'seek'):
                 raise ValueError(
                     'File like object must have a seek method')
             self._fh = filename
-            self._close = False
             self.filename = getattr(filename, 'name', None)
         else:
             self._fh = open(filename, 'rb')
@@ -259,13 +253,10 @@ class Dataset(object):
 
     """
 
-    def __init__(self, name, dataobjects, parent, alt_file=None):
+    def __init__(self, name, dataobjects, parent):
         """ initalize. """
         self.parent = parent
-        if alt_file is None:
-            self.file = parent.file
-        else:
-            self.file = alt_file
+        self.file = parent.file
         self.name = name
 
         self._dataobjects = dataobjects
