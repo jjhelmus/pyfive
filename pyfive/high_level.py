@@ -166,12 +166,12 @@ class File(Group):
 
     def __init__(self, filename):
         """ initalize. """
+        self._close = False
         if hasattr(filename, 'read'):
             if not hasattr(filename, 'seek'):
                 raise ValueError(
                     'File like object must have a seek method')
             self._fh = filename
-            self._close = False
             self.filename = getattr(filename, 'name', None)
         else:
             self._fh = open(filename, 'rb')
