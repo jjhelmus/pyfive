@@ -46,7 +46,7 @@ class SuperBlock(object):
             sym_table = SymbolTable(self._fh, self._end_of_sblock, root=True)
             self._root_symbol_table = sym_table
             return sym_table.group_offset
-        elif self.version == 2 or version_hint == 3:
+        elif self.version == 2 or self.version == 3:
             return self._contents['root_group_address']
         else:
             raise NotImplementedError
