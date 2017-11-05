@@ -22,9 +22,9 @@ class SuperBlock(object):
         if version_hint == 0:
             contents = _unpack_struct_from_file(SUPERBLOCK_V0, fh)
             self._end_of_sblock = offset + SUPERBLOCK_V0_SIZE
-        elif version_hint == 2:
-            contents = _unpack_struct_from_file(SUPERBLOCK_V2, fh)
-            self._end_of_sblock = offset + SUPERBLOCK_V2_SIZE
+        elif version_hint == 2 or version_hint == 3:
+            contents = _unpack_struct_from_file(SUPERBLOCK_V2_V3, fh)
+            self._end_of_sblock = offset + SUPERBLOCK_V2_V3_SIZE
         else:
             raise NotImplementedError(
                 "unsupported superblock version: %i" % (version_hint))
@@ -46,7 +46,7 @@ class SuperBlock(object):
             sym_table = SymbolTable(self._fh, self._end_of_sblock, root=True)
             self._root_symbol_table = sym_table
             return sym_table.group_offset
-        elif self.version == 2:
+        elif self.version == 2 or version_hint == 3:
             return self._contents['root_group_address']
         else:
             raise NotImplementedError
@@ -180,8 +180,8 @@ SUPERBLOCK_V0 = OrderedDict((
 ))
 SUPERBLOCK_V0_SIZE = _structure_size(SUPERBLOCK_V0)
 
-# Version 2 SUPERBLOCK
-SUPERBLOCK_V2 = OrderedDict((
+# Version 2 and 3 SUPERBLOCK
+SUPERBLOCK_V2_V3 = OrderedDict((
     ('format_signature', '8s'),
 
     ('superblock_version', 'B'),
@@ -197,7 +197,7 @@ SUPERBLOCK_V2 = OrderedDict((
     ('superblock_checksum', 'I'),
 
 ))
-SUPERBLOCK_V2_SIZE = _structure_size(SUPERBLOCK_V2)
+SUPERBLOCK_V2_V3_SIZE = _structure_size(SUPERBLOCK_V2_V3)
 
 
 SYMBOL_TABLE_NODE = OrderedDict((
