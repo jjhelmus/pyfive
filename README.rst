@@ -63,3 +63,10 @@ testing
 pyfive comes with a test suite in the ``tests`` directory.  These tests can be
 exercised using the commands ``nosetests`` from the root directory assuming the
 ``nose`` package is installed.
+
+Related Projects
+================
+
+`jsfive`_ is a pure javascript HDF5 file reader based on pyfive.
+
+.. _jsfive: https://github.com/usnistgov/jsfive
