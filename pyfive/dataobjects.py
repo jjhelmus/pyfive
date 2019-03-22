@@ -421,12 +421,9 @@ class DataObjects(object):
             layout_class = arg2
             property_offset = msg_offset
             property_offset += struct.calcsize('<BBB')
-            if layout_class == 1:
-                # reserved fields: 1 byte, 1 long
-                property_offset += struct.calcsize('<BQ')
-            elif layout_class == 2:
-                # reserved fields: 1 byte, 1 int
-                property_offset += struct.calcsize('<BI')
+            # reserved fields: 1 byte, 1 int
+            property_offset += struct.calcsize('<BI')
+            # compact storage (layout class 0) not supported:
             assert (layout_class == 1) or (layout_class == 2)
         elif (version == 3) or (version == 4):
             layout_class = arg1
