@@ -77,7 +77,15 @@ class Group(Mapping):
             raise KeyError('%s not found in group' % (next_obj))
 
         obj_name = posixpath.join(self.name, next_obj)
-        dataobjs = DataObjects(self.file._fh, self._links[next_obj])
+        link_target = self._links[next_obj]
+
+        if isinstance(link_target, str):
+            try:
+                return self.__getitem__(link_target)
+            except KeyError:
+                return None
+
+        dataobjs = DataObjects(self.file._fh, link_target)
         if dataobjs.is_dataset:
             if additional_obj != '.':
                 raise KeyError('%s is a dataset, not a group' % (obj_name))

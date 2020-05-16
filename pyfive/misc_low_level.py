@@ -107,10 +107,16 @@ class SymbolTable(object):
             entry['link_name'] = link_name
         return
 
-    def get_links(self):
+    def get_links(self, heap):
         """ Return a dictionary of links (dataset/group) and offsets. """
-        return {e['link_name']: e['object_header_address'] for e in
-                self.entries}
+        links = {}
+        for e in self.entries:
+            if e['cache_type'] in [0,1]:
+                links[e['link_name']] = e['object_header_address']
+            elif e['cache_type'] == 2:
+                offset = struct.unpack('<4I', e['scratch'])[0]
+                links[e['link_name']] = heap.get_object_name(offset).decode('utf-8')
+        return links
 
 
 class GlobalHeap(object):

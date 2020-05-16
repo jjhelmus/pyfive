@@ -501,7 +501,7 @@ class DataObjects(object):
         for symbol_table_address in btree.symbol_table_addresses():
             table = SymbolTable(self.fh, symbol_table_address)
             table.assign_name(heap)
-            links.update(table.get_links())
+            links.update(table.get_links(heap))
         return links
 
     def _get_links_from_link_msgs(self):
@@ -513,23 +513,42 @@ class DataObjects(object):
             version, flags = struct.unpack_from('<BB', self.msg_data, offset)
             offset += 2
             assert version == 1
-            assert flags & 2**0 == 0
-            assert flags & 2**1 == 0
-            assert flags & 2**3 == 0
-            assert flags & 2**4 == 0
+            size_of_length_of_link_name = 2**(flags & 3)
+            link_type_field_present = flags & 2**3
+            link_name_character_set_field_present = flags & 2**4
+            if link_type_field_present:
+                link_type = struct.unpack_from('<B', self.msg_data, offset)[0]
+                offset += 1
+            else:
+                link_type = 0
+            assert link_type in [0,1]
+
             if flags & 2**2:
                 # creation order present
                 offset += 8
+            if link_name_character_set_field_present:
+                link_name_character_set = struct.unpack_from('<B', self.msg_data, offset)[0]
+                offset += 1
+            else:
+                link_name_character_set = 0
 
-            encoding = 'ascii'
+            encoding = 'ascii' if link_name_character_set == 0 else 'utf-8'
 
-            name_size = struct.unpack_from('<B', self.msg_data, offset)[0]
-            offset += 1
+            name_size_fmt = ["<B", "<H", "<I", "<Q"][flags & 3]
+            name_size = struct.unpack_from(name_size_fmt, self.msg_data, offset)[0]
+            offset += size_of_length_of_link_name
             name = self.msg_data[offset:offset+name_size].decode(encoding)
             offset += name_size
 
-            address = struct.unpack_from('<Q', self.msg_data, offset)[0]
-            links[name] = address
+            if link_type == 0:
+                # hard link
+                address = struct.unpack_from('<Q', self.msg_data, offset)[0]
+                links[name] = address
+            elif link_type == 1:
+                # soft link
+                length_of_soft_link_value = struct.unpack_from('<H', self.msg_data, offset)[0]
+                offset += 2
+                links[name] = self.msg_data[offset:offset+length_of_soft_link_value].decode(encoding)
         return links
 
     @property
