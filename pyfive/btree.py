@@ -209,16 +209,16 @@ def _verify_fletcher32(chunk_buffer):
     """ Verify a chunk with a fletcher32 checksum. """
     # calculate checksums
     if len(chunk_buffer) % 2:
-        arr = np.fromstring(chunk_buffer[:-4]+b'\x00', '<u2')
+        arr = np.frombuffer(chunk_buffer[:-4]+b'\x00', '<u2')
     else:
-        arr = np.fromstring(chunk_buffer[:-4], '<u2')
+        arr = np.frombuffer(chunk_buffer[:-4], '<u2')
     sum1 = sum2 = 0
     for i in arr:
         sum1 = (sum1 + i) % 65535
         sum2 = (sum2 + sum1) % 65535
 
     # extract stored checksums
-    ref_sum1, ref_sum2 = np.fromstring(chunk_buffer[-4:], '>u2')
+    ref_sum1, ref_sum2 = np.frombuffer(chunk_buffer[-4:], '>u2')
     ref_sum1 = ref_sum1 % 65535
     ref_sum2 = ref_sum2 % 65535
 

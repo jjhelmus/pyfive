@@ -272,7 +272,7 @@ class DataObjects(object):
 
         if size:
             payload = self.msg_data[offset:offset+size]
-            fillvalue = np.fromstring(payload, self.dtype, count=1)[0]
+            fillvalue = np.frombuffer(payload, self.dtype, count=1)[0]
         else:
             fillvalue = 0
         return fillvalue
