@@ -158,7 +158,7 @@ class BTreeRawDataChunks(object):
                 chunk_data = np.frombuffer(chunk_buffer, dtype=dtype)
                 start = node_key['chunk_offset'][:-1]
                 region = [slice(i, i+j) for i, j in zip(start, chunk_shape)]
-                data[region] = chunk_data.reshape(chunk_shape)
+                data[tuple(region)] = chunk_data.reshape(chunk_shape)
 
         if isinstance(true_dtype, tuple):
             if dtype_class == 'REFERENCE':
@@ -167,7 +167,7 @@ class BTreeRawDataChunks(object):
             else:
                 raise NotImplementedError('datatype not implemented')
 
-        non_padded_region = [slice(i) for i in data_shape]
+        non_padded_region = tuple([slice(i) for i in data_shape])
         return data[non_padded_region]
 
     @staticmethod
