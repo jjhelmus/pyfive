@@ -61,8 +61,8 @@ testing
 -------
 
 pyfive comes with a test suite in the ``tests`` directory.  These tests can be
-exercised using the commands ``nosetests`` from the root directory assuming the
-``nose`` package is installed.
+exercised using the commands ``pytest`` from the root directory assuming the
+``pytest`` package is installed.
 
 Related Projects
 ================

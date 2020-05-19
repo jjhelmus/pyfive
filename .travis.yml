@@ -11,8 +11,7 @@ python:
 
 install: 
   - pip install .
-  - pip install nose
+  - pip install pytest
 
 script: 
-  - cd tests
-  - nosetests
+  - pytest
