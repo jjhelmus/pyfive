@@ -1,6 +1,7 @@
 """ High-level classes for reading HDF5 files.  """
 
-from collections import Mapping, deque, Sequence
+from collections import deque
+from collections.abc import Mapping, Sequence
 import os
 from io import open     # Python 2.7 requires for a Buffered Reader
 import posixpath
