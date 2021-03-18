@@ -11,38 +11,87 @@ from .core import _unpack_struct_from_file
 from .core import Reference
 
 
-class BTree(object):
-    """
-    HDF5 version 1 B-Tree.
-    """
+class AbstractBTree(object):
+    B_LINK_NODE = None
+    NODE_TYPE = None
 
     def __init__(self, fh, offset):
         """ initalize. """
         self.fh = fh
+        self.offset = offset
+        self.depth = None
+        self.all_nodes = {}
 
-        # read in the root node
-        root_node = self._read_node(offset)
-        self.root_node = root_node
+        self._read_root_node()
+        self._read_children()
 
-        # read in all nodes
-        all_nodes = {}
-        node_level = root_node['node_level']
-        all_nodes[node_level] = [root_node]
-        while node_level != 0:
-            new_nodes = []
-            for parent_node in all_nodes[node_level]:
-                for addr in parent_node['addresses']:
-                    new_nodes.append(self._read_node(addr))
-            new_node_level = new_nodes[0]['node_level']
-            all_nodes[new_node_level] = new_nodes
-            node_level = new_node_level
-        self.all_nodes = all_nodes
+    def _read_children(self):
+        # Leaf nodes: level 0
+        # Root node: level "depth"
+        node_level = self.depth
+        for node_level in range(self.depth, 0, -1):
+            for parent_node in self.all_nodes[node_level]:
+                for child_addr in parent_node['addresses']:
+                    child_node = self._read_node(child_addr)
+                    self._add_node(child_node)
+
+    def _read_root_node(self):
+        root_node = self._read_node(self.offset)
+        self._add_node(root_node)
+        self.depth = root_node['node_level']
+
+    def _add_node(self, node):
+        node_level = node['node_level']
+        if node_level in self.all_nodes:
+            self.all_nodes[node_level].append(node)
+        else:
+            self.all_nodes[node_level] = [node]
 
     def _read_node(self, offset):
         """ Return a single node in the B-Tree located at a given offset. """
+        node = self._read_node_header(offset)
+        node['keys'] = []
+        node['addresses'] = []
+        return node
+
+    def _read_node_header(self, offset):
+        """ Return a single node header in the b-tree located at a give offset. """
+        raise NotImplementedError
+
+
+class BTreeV1(AbstractBTree):
+    """
+    HDF5 version 1 B-Tree.
+    """
+    B_LINK_NODE = OrderedDict((
+        ('signature', '4s'),
+
+        ('node_type', 'B'),
+        ('node_level', 'B'),
+        ('entries_used', 'H'),
+
+        ('left_sibling', 'Q'),     # 8 byte addressing
+        ('right_sibling', 'Q'),    # 8 byte addressing
+    ))
+
+    def _read_node_header(self, offset):
+        """ Return a single node header in the b-tree located at a give offset. """
         self.fh.seek(offset)
-        node = _unpack_struct_from_file(B_LINK_NODE_V1, self.fh)
+        node = _unpack_struct_from_file(self.B_LINK_NODE, self.fh)
         assert node['signature'] == b'TREE'
+        assert node['node_type'] == self.NODE_TYPE
+        return node
+
+
+class BTreeV1GroupNodes(BTreeV1):
+    """
+    HDF5 version 1 B-Tree storing group nodes (type 0).
+    """
+    NODE_TYPE = 0
+
+    def _read_node(self, offset):
+        """ Return a single node in the B-Tree located at a given offset. """
+        node = self._read_node_header(offset)
 
         keys = []
         addresses = []
@@ -65,41 +114,20 @@ class BTree(object):
         return all_address
 
 
-class BTreeRawDataChunks(object):
+class BTreeV1RawDataChunks(BTreeV1):
     """
     HDF5 version 1 B-Tree storing raw data chunk nodes (type 1).
     """
+    NODE_TYPE = 1
 
     def __init__(self, fh, offset, dims):
         """ initalize. """
-        self.fh = fh
         self.dims = dims
-
-        # read in the root node
-        root_node = self._read_node(offset)
-        self.root_node = root_node
-
-        # read in all other nodes
-        all_nodes = {}
-        node_level = root_node['node_level']
-        all_nodes[node_level] = [root_node]
-        while node_level != 0:
-            new_nodes = []
-            for parent_node in all_nodes[node_level]:
-                for addr in parent_node['addresses']:
-                    new_nodes.append(self._read_node(addr))
-            new_node_level = new_nodes[0]['node_level']
-            all_nodes[new_node_level] = new_nodes
-            node_level = new_node_level
-
-        self.all_nodes = all_nodes
+        super().__init__(fh, offset)
 
     def _read_node(self, offset):
         """ Return a single node in the b-tree located at a give offset. """
-        self.fh.seek(offset)
-        node = _unpack_struct_from_file(B_LINK_NODE_V1, self.fh)
-        assert node['signature'] == b'TREE'
-        assert node['node_type'] == 1
+        node = self._read_node_header(offset)
 
         keys = []
         addresses = []
@@ -185,7 +213,6 @@ class BTreeRawDataChunks(object):
             filter_id = pipeline_entry['filter_id']
             if filter_id == GZIP_DEFLATE_FILTER:
                 chunk_buffer = zlib.decompress(chunk_buffer)
-
             elif filter_id == SHUFFLE_FILTER:
                 buffer_size = len(chunk_buffer)
                 unshuffled_buffer = bytearray(buffer_size)
@@ -228,16 +255,41 @@ def _verify_fletcher32(chunk_buffer):
     return True
 
 
-B_LINK_NODE_V1 = OrderedDict((
-    ('signature', '4s'),
+class BTreeV2(AbstractBTree):
+    """
+    HDF5 version 2 B-Tree.
+    """
+    B_TREE_HEADER = OrderedDict((
+        ('signature', '4s'),
 
-    ('node_type', 'B'),
-    ('node_level', 'B'),
-    ('entries_used', 'H'),
+        ('version', 'B'),
+        ('node_type', 'B'),
+        ('node_size', 'I'),
+        ('record_size', 'H'),
+        ('depth', 'H'),
+        ('split_percent', 'B'),
+        ('merge_percent', 'B'),
 
-    ('left_sibling', 'Q'),     # 8 byte addressing
-    ('right_sibling', 'Q'),    # 8 byte addressing
-))
+        ('root_address', 'Q'),     # 8 byte addressing
+        ('root_nrecords', 'H'),
+        ('total_nrecords', 'Q'),     # 8 byte addressing
+    ))
+
+    B_LINK_NODE = OrderedDict((
+        ('signature', '4s'),
+
+        ('version', 'B'),
+        ('node_type', 'B'),
+    ))
+
+    def _read_root_node(self):
+        self.fh.seek(self.offset)
+        header = _unpack_struct_from_file(self.B_TREE_HEADER, self.fh)
+        assert header['signature'] == b'BTHD'
+        #assert header['node_type'] == self.NODE_TYPE
+        print(header)
+        self.depth = 0
+
 
 # IV.A.2.l The Data Storage - Filter Pipeline message
 RESERVED_FILTER = 0
