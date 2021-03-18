@@ -13,8 +13,8 @@ from .core import _padded_size, _structure_size
 from .core import _unpack_struct_from, _unpack_struct_from_file
 from .core import InvalidHDF5File
 from .core import Reference
-from .btree import BTreeV1GroupNodes, BTreeV1RawDataChunks
-from .btree import BTreeV2
+from .btree import BTreeV1Groups, BTreeV1RawDataChunks
+from .btree import BTreeV2GroupNames, BTreeV2GroupOrders
 from .btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
 from .misc_low_level import Heap, SymbolTable, GlobalHeap
 
@@ -508,7 +508,7 @@ class DataObjects(object):
 
     def _iter_links_btree(self, btree_address, heap_address):
         """ Retrieve links from symbol table message. """
-        btree = BTreeV1GroupNodes(self.fh, btree_address)
+        btree = BTreeV1Groups(self.fh, btree_address)
         heap = Heap(self.fh, heap_address)
         for symbol_table_address in btree.symbol_table_addresses():
             table = SymbolTable(self.fh, symbol_table_address)
@@ -575,7 +575,9 @@ class DataObjects(object):
         data = _unpack_struct_from(fmt, self.msg_data, offset)
         data = {k: None if v == 0xffffffffffffffff else v for k, v in data.items()}
         if data["name_btree_address"]:
-            btree = BTreeV2(self.fh, data["name_btree_address"])
+            btree = BTreeV2GroupNames(self.fh, data["name_btree_address"])
+        if data.get("order_btree_address"):
+            btree = BTreeV2GroupOrders(self.fh, data["order_btree_address"])
         return # TODO
         yield from self._iter_links_btree(name_btree_address, heap_address)
 

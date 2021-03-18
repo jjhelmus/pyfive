@@ -32,11 +32,11 @@ class AbstractBTree(object):
         for node_level in range(self.depth, 0, -1):
             for parent_node in self.all_nodes[node_level]:
                 for child_addr in parent_node['addresses']:
-                    child_node = self._read_node(child_addr)
+                    child_node = self._read_node(child_addr, node_level-1)
                     self._add_node(child_node)
 
     def _read_root_node(self):
-        root_node = self._read_node(self.offset)
+        root_node = self._read_node(self.offset, None)
         self._add_node(root_node)
         self.depth = root_node['node_level']
 
@@ -47,7 +47,7 @@ class AbstractBTree(object):
         else:
             self.all_nodes[node_level] = [node]
 
-    def _read_node(self, offset):
+    def _read_node(self, offset, node_level):
         """ Return a single node in the B-Tree located at a given offset. """
         node = self._read_node_header(offset)
         node['keys'] = []
@@ -83,15 +83,17 @@ class BTreeV1(AbstractBTree):
         return node
 
 
-class BTreeV1GroupNodes(BTreeV1):
+class BTreeV1Groups(BTreeV1):
     """
     HDF5 version 1 B-Tree storing group nodes (type 0).
     """
     NODE_TYPE = 0
 
-    def _read_node(self, offset):
+    def _read_node(self, offset, node_level):
         """ Return a single node in the B-Tree located at a given offset. """
         node = self._read_node_header(offset)
+        if node_level is not None:
+            assert node["node_level"] == node_level
 
         keys = []
         addresses = []
@@ -125,9 +127,11 @@ class BTreeV1RawDataChunks(BTreeV1):
         self.dims = dims
         super().__init__(fh, offset)
 
-    def _read_node(self, offset):
+    def _read_node(self, offset, node_level):
         """ Return a single node in the b-tree located at a give offset. """
         node = self._read_node_header(offset)
+        if node_level is not None:
+            assert node["node_level"] == node_level
 
         keys = []
         addresses = []
@@ -286,9 +290,43 @@ class BTreeV2(AbstractBTree):
         self.fh.seek(self.offset)
         header = _unpack_struct_from_file(self.B_TREE_HEADER, self.fh)
         assert header['signature'] == b'BTHD'
-        #assert header['node_type'] == self.NODE_TYPE
+        assert header['node_type'] == self.NODE_TYPE
+        self.header = header
+        self.depth = header["depth"]
+        root_node = self._read_node(header["root_address"], self.depth, header["root_nrecords"])
         print(header)
-        self.depth = 0
+        print(root_node)
+
+    def _read_node(self, offset, node_level, nrecords):
+        """ Return a single node in the B-Tree located at a given offset. """
+        node = self._read_node_header(offset)
+        node["node_level"] = node_level
+        node['keys'] = []
+        node['addresses'] = []
+        return node
+
+    def _read_node_header(self, offset):
+        """ Return a single node header in the b-tree located at a give offset. """
+        self.fh.seek(offset)
+        node = _unpack_struct_from_file(self.B_LINK_NODE, self.fh)
+        assert node['signature'] in (b'BTIN', b'BTLF')
+        assert node['node_type'] == self.NODE_TYPE
+        node['leaf'] = node['signature'] == b'BTLF'
+        return node
+
+
+class BTreeV2GroupNames(BTreeV2):
+    """
+    HDF5 version 2 B-Tree storing group names (type 5).
+    """
+    NODE_TYPE = 5
+
+
+class BTreeV2GroupOrders(BTreeV2):
+    """
+    HDF5 version 2 B-Tree storing group creation orders (type 6).
+    """
+    NODE_TYPE = 6
 
 
 # IV.A.2.l The Data Storage - Filter Pipeline message
