@@ -336,7 +336,6 @@ class BTreeV2(AbstractBTree):
             if node_level < header["depth"]:
                 addr_size = offset_size + num1_size + num2_size
                 nrecords_max = self._nrecords_max(node_size, record_size, addr_size)
-                nrecords_max = int(nrecords_max)
                 ntotalrecords_max += nrecords_max
 
         return address_formats
@@ -354,7 +353,7 @@ class BTreeV2(AbstractBTree):
         #   addr_size = offset_size + num1_size
         # Internal node (node_level > 1)
         #   addr_size = offset_size + num1_size + num2_size
-        return (node_size - 10 - addr_size)/(record_size + addr_size)
+        return (node_size - 10 - addr_size)//(record_size + addr_size)
 
     @staticmethod
     def _required_bytes(integer):

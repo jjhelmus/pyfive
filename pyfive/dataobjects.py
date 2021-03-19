@@ -504,9 +504,9 @@ class DataObjects(object):
         data = _unpack_struct_from(
             SYMBOL_TABLE_MSG, self.msg_data,
             sym_tbl_msg['offset_to_message'])
-        yield from self._iter_links_btree(data['btree_address'], data['heap_address'])
+        yield from self._iter_links_btree_v1(data['btree_address'], data['heap_address'])
 
-    def _iter_links_btree(self, btree_address, heap_address):
+    def _iter_links_btree_v1(self, btree_address, heap_address):
         """ Retrieve links from symbol table message. """
         btree = BTreeV1Groups(self.fh, btree_address)
         heap = Heap(self.fh, heap_address)
@@ -574,15 +574,23 @@ class DataObjects(object):
             fmt = LINK_INFO_MSG1
         data = _unpack_struct_from(fmt, self.msg_data, offset)
         data = {k: None if v == 0xffffffffffffffff else v for k, v in data.items()}
-        if data["heap_address"]:
-            pass # Fractal heap
-            # heap = Heap(self.fh, data["heap_address"])
-        if data["name_btree_address"]:
-            btree = BTreeV2GroupNames(self.fh, data["name_btree_address"])
-        if data.get("order_btree_address"):
-            btree = BTreeV2GroupOrders(self.fh, data["order_btree_address"])
-        return # TODO
-        yield from self._iter_links_btree(name_btree_address, heap_address)
+        heap_address = data["heap_address"]
+        name_btree_address = data["name_btree_address"]
+        order_btree_address = data.get("order_btree_address", None)
+        if name_btree_address:
+            yield from self._iter_links_btree_v2(name_btree_address, order_btree_address, heap_address)
+
+    def _iter_links_btree_v2(self, name_btree_address, order_btree_address, heap_address):
+        """ Retrieve links from symbol table message. """
+        # Fractal heap
+        # heap = Heap(self.fh, data["heap_address"])
+        btree_names = BTreeV2GroupNames(self.fh, name_btree_address)
+        if order_btree_address:
+            btree_order = BTreeV2GroupOrders(self.fh, order_btree_address)
+        else:
+            btree_order = None
+        return
+        yield None
 
     @property
     def is_dataset(self):
