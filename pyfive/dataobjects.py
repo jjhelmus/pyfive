@@ -574,6 +574,9 @@ class DataObjects(object):
             fmt = LINK_INFO_MSG1
         data = _unpack_struct_from(fmt, self.msg_data, offset)
         data = {k: None if v == 0xffffffffffffffff else v for k, v in data.items()}
+        if data["heap_address"]:
+            pass # Fractal heap
+            # heap = Heap(self.fh, data["heap_address"])
         if data["name_btree_address"]:
             btree = BTreeV2GroupNames(self.fh, data["name_btree_address"])
         if data.get("order_btree_address"):
