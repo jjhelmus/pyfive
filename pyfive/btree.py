@@ -384,7 +384,7 @@ class BTreeV2(AbstractBTree):
                     num2 = struct.unpack(num2_fmt, self.fh.read(num2_size))[0]
                     num2 = int.from_bytes(num2, byteorder="little", signed=False)
                 else:
-                    num2 = 0
+                    num2 = num1
                 addresses.append((offset, num1, num2))
 
         node['keys'] = keys
