@@ -374,7 +374,7 @@ class BTreeV2(AbstractBTree):
         keys = []
         for _ in range(nrecords):
             record = self.fh.read(record_size)
-            keys.append(record)
+            keys.append(self._parse_record(record))
 
         addresses = []
         fmts = self.address_formats[node_level]
@@ -409,6 +409,9 @@ class BTreeV2(AbstractBTree):
         node["node_level"] = node_level
         return node
 
+    def _parse_record(self, record):
+        raise NotImplementedError
+
 
 class BTreeV2GroupNames(BTreeV2):
     """
@@ -416,12 +419,24 @@ class BTreeV2GroupNames(BTreeV2):
     """
     NODE_TYPE = 5
 
+    def _parse_record(self, record):
+        namehash = struct.unpack_from("<I", record, 0)[0]
+        objectid = struct.unpack_from("<7s", record, 4)[0]
+        objectid = int.from_bytes(objectid, byteorder="little", signed=False)
+        return {'namehash': namehash, 'objectid':objectid}
+
 
 class BTreeV2GroupOrders(BTreeV2):
     """
     HDF5 version 2 B-Tree storing group creation orders (type 6).
     """
     NODE_TYPE = 6
+
+    def _parse_record(self, record):
+        creationorder = struct.unpack_from("<Q", record, 0)[0]
+        objectid = struct.unpack_from("<7s", record, 4)[0]
+        objectid = int.from_bytes(objectid, byteorder="little", signed=False)
+        return {'creationorder': creationorder, 'objectid':objectid}
 
 
 # IV.A.2.l The Data Storage - Filter Pipeline message

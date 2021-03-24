@@ -16,7 +16,7 @@ from .core import Reference
 from .btree import BTreeV1Groups, BTreeV1RawDataChunks
 from .btree import BTreeV2GroupNames, BTreeV2GroupOrders
 from .btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
-from .misc_low_level import Heap, SymbolTable, GlobalHeap
+from .misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap
 
 
 class DataObjects(object):
@@ -582,8 +582,7 @@ class DataObjects(object):
 
     def _iter_links_btree_v2(self, name_btree_address, order_btree_address, heap_address):
         """ Retrieve links from symbol table message. """
-        # Fractal heap
-        # heap = Heap(self.fh, data["heap_address"])
+        heap = FractalHeap(self.fh, heap_address)
         btree_names = BTreeV2GroupNames(self.fh, name_btree_address)
         if order_btree_address:
             btree_order = BTreeV2GroupOrders(self.fh, order_btree_address)

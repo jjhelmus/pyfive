@@ -157,6 +157,27 @@ class GlobalHeap(object):
         return self._objects
 
 
+class FractalHeap(object):
+    """
+    HDF5 Fractal Heap. Stores 3 types of objects:
+        - tiny: object is stored in the object ID
+        - huge: stored in B-tree's instead of managed space
+        - managed: direct and indirect blocks in a doubling table
+    """
+
+    def __init__(self, fh, offset):
+
+        fh.seek(offset)
+        header = _unpack_struct_from_file(FRACTAL_HEAP_HEADER, fh)
+        assert header['signature'] == b'FRHP'
+        assert header['version'] == 0
+        if header['flags']:
+            header['filtered_size'], header['filter_mask'] = struct.unpack('<QQ', fh.read(16))
+        if header['filter_info_size']:
+            header['filter_info'] = fh.read(header['filter_info_size'])
+        self._header = header
+
+
 FORMAT_SIGNATURE = b'\211HDF\r\n\032\n'
 
 # Version 0 SUPERBLOCK
@@ -248,3 +269,32 @@ GLOBAL_HEAP_OBJECT = OrderedDict((
     ('object_size', 'Q')    # 8 byte addressing
 ))
 GLOBAL_HEAP_OBJECT_SIZE = _structure_size(GLOBAL_HEAP_OBJECT)
+
+# III.G. Disk Format: Level 1G - Fractal Heap
+FRACTAL_HEAP_HEADER = OrderedDict((
+    ('signature', '4s'),
+    ('version', 'B'),
+    ('object_index_size', 'H'),
+    ('filter_info_size', 'H'),
+    ('flags', 'B'),
+    ('max_managed_object_size', 'Q'),
+    ('next_huge_object_index', 'Q'),       # 8 byte addressing
+    ('btree_address_huge_objects', 'Q'),   # 8 byte addressing
+    ('managed_freespace_size', 'Q'),       # 8 byte addressing
+    ('freespace_manager_address', 'Q'),    # 8 byte addressing
+    ('managed_space_size', 'Q'),           # 8 byte addressing
+    ('managed_alloc_size', 'Q'),           # 8 byte addressing
+    ('directblock_iterator_address', 'Q'), # 8 byte addressing
+    ('managed_object_count', 'Q'),         # 8 byte addressing
+    ('huge_objects_total_size', 'Q'),      # 8 byte addressing
+    ('huge_object_count', 'Q'),            # 8 byte addressing
+    ('tiny_objects_total_size', 'Q'),      # 8 byte addressing
+    ('tiny_object_count', 'Q'),            # 8 byte addressing
+    ('table_width', 'H'),
+    ('starting_block_size', 'Q'),          # 8 byte addressing
+    ('maximum_direct_block_size', 'Q'),    # 8 byte addressing
+    ('maximum_heap_size', 'H'),
+    ('indirect_starting_rows_count', 'H'),
+    ('managed_root_address', 'Q'),         # 8 byte addressing
+    ('indirect_current_rows_count', 'H'),
+))
