@@ -307,6 +307,7 @@ class BTreeV2(AbstractBTree):
         node_size = header["node_size"]
         record_size = header["record_size"]
 
+        nrecords_max = 0
         ntotalrecords_max = 0
         address_formats = []
         for node_level in range(header["depth"]+1):
@@ -336,7 +337,10 @@ class BTreeV2(AbstractBTree):
             if node_level < header["depth"]:
                 addr_size = offset_size + num1_size + num2_size
                 nrecords_max = self._nrecords_max(node_size, record_size, addr_size)
-                ntotalrecords_max += nrecords_max
+                if ntotalrecords_max:
+                    ntotalrecords_max *= nrecords_max
+                else:
+                    ntotalrecords_max = nrecords_max
 
         return address_formats
 
@@ -404,7 +408,6 @@ class BTreeV2(AbstractBTree):
             assert node['signature'] == b'BTLF'
         node["node_level"] = node_level
         return node
-
 
 
 class BTreeV2GroupNames(BTreeV2):
