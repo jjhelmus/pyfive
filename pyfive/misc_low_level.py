@@ -1,6 +1,7 @@
 """ Misc low-level representation of HDF5 objects. """
 
 import struct
+from math import log2
 from collections import OrderedDict
 
 from .core import _padded_size, _structure_size
@@ -159,10 +160,7 @@ class GlobalHeap(object):
 
 class FractalHeap(object):
     """
-    HDF5 Fractal Heap. Stores 3 types of objects:
-        - tiny: object is stored in the object ID
-        - huge: stored in B-tree's instead of managed space
-        - managed: direct and indirect blocks in a doubling table
+    HDF5 Fractal Heap.
     """
 
     def __init__(self, fh, offset):
@@ -171,11 +169,61 @@ class FractalHeap(object):
         header = _unpack_struct_from_file(FRACTAL_HEAP_HEADER, fh)
         assert header['signature'] == b'FRHP'
         assert header['version'] == 0
-        if header['flags']:
-            header['filtered_size'], header['filter_mask'] = struct.unpack('<QQ', fh.read(16))
+
         if header['filter_info_size']:
-            header['filter_info'] = fh.read(header['filter_info_size'])
+            raise NotImplementedError
+
+        if header["btree_address_huge_objects"] == 0xffffffffffffffff:
+            header["btree_address_huge_objects"] = None
+        else:
+            raise NotImplementedError
+
+        if header["root_block_address"] == 0xffffffffffffffff:
+            header["root_block_address"] = None
+
+        n = header["maximum_heap_size"]
+        block_offset_size = n // 8 + min(n % 8, 1)
+        h = OrderedDict((
+            ('signature', '4s'),
+            ('version', 'B'),
+            ('heap_header_adddress', 'Q'),
+            ('block_offset', '{}s'.format(block_offset_size))
+        ))
+        self.indirect_block_header = h.copy()
+        if (header["flags"] & 1) == 1:
+            h['checksum'] = 'Q'
+        self.direct_block_header = h
+
+        maximum_dblock_size = header['maximum_direct_block_size']
+        start_block_size = header['starting_block_size']
+        table_width = header['table_width']
+        log2_maximum_dblock_size = int(log2(maximum_dblock_size))
+        assert 2**log2_maximum_dblock_size == maximum_dblock_size
+        log2_start_block_size = int(log2(start_block_size))
+        assert 2**log2_start_block_size == start_block_size
+        self._max_direct_nrows = log2_maximum_dblock_size - log2_start_block_size + 2
+        if table_width:
+            log2_table_width = int(log2(table_width))
+            assert 2**log2_table_width == table_width
+            self._indirect_nrows_sub = log2_table_width + log2_start_block_size - 1
+        else:
+            self._indirect_nrows_sub = 0
+
         self._header = header
+        # root_block_address
+
+    def _indirect_info(self, block_size):
+        nrows = log2(block_size) - self._indirect_nrows_sub
+        table_width = header['table_width']
+        nobjects = nrows * table_width
+        ndirect_max = self._max_direct_nrows * table_width
+        if nrows <= ndirect_max:
+            ndirect = nobjects
+            nindirect = 0
+        else:
+            ndirect = ndirect_max
+            nindirect = nobjects - ndirect_max
+        return ndirect, nindirect
 
 
 FORMAT_SIGNATURE = b'\211HDF\r\n\032\n'
@@ -274,27 +322,32 @@ GLOBAL_HEAP_OBJECT_SIZE = _structure_size(GLOBAL_HEAP_OBJECT)
 FRACTAL_HEAP_HEADER = OrderedDict((
     ('signature', '4s'),
     ('version', 'B'),
+
     ('object_index_size', 'H'),
     ('filter_info_size', 'H'),
     ('flags', 'B'),
-    ('max_managed_object_size', 'Q'),
+
+    ('max_managed_object_size', 'I'),
     ('next_huge_object_index', 'Q'),       # 8 byte addressing
     ('btree_address_huge_objects', 'Q'),   # 8 byte addressing
+
     ('managed_freespace_size', 'Q'),       # 8 byte addressing
     ('freespace_manager_address', 'Q'),    # 8 byte addressing
     ('managed_space_size', 'Q'),           # 8 byte addressing
     ('managed_alloc_size', 'Q'),           # 8 byte addressing
-    ('directblock_iterator_address', 'Q'), # 8 byte addressing
+    ('next_directblock_iterator_address', 'Q'), # 8 byte addressing
+
     ('managed_object_count', 'Q'),         # 8 byte addressing
     ('huge_objects_total_size', 'Q'),      # 8 byte addressing
     ('huge_object_count', 'Q'),            # 8 byte addressing
     ('tiny_objects_total_size', 'Q'),      # 8 byte addressing
     ('tiny_object_count', 'Q'),            # 8 byte addressing
+
     ('table_width', 'H'),
     ('starting_block_size', 'Q'),          # 8 byte addressing
     ('maximum_direct_block_size', 'Q'),    # 8 byte addressing
     ('maximum_heap_size', 'H'),
     ('indirect_starting_rows_count', 'H'),
-    ('managed_root_address', 'Q'),         # 8 byte addressing
+    ('root_block_address', 'Q'),           # 8 byte addressing
     ('indirect_current_rows_count', 'H'),
 ))
