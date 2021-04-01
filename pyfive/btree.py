@@ -8,6 +8,7 @@ import numpy as np
 
 from .core import _padded_size
 from .core import _unpack_struct_from_file
+from .core import _unpack_integer
 from .core import Reference
 
 
@@ -376,6 +377,11 @@ class BTreeV2(AbstractBTree):
             record = self.fh.read(record_size)
             keys.append(self._parse_record(record))
 
+        if False:
+            from pprint import pprint
+            print("\nRECORDS")
+            pprint(keys)
+
         addresses = []
         fmts = self.address_formats[node_level]
         if fmts[0]:
@@ -421,8 +427,7 @@ class BTreeV2GroupNames(BTreeV2):
 
     def _parse_record(self, record):
         namehash = struct.unpack_from("<I", record, 0)[0]
-        objectid = struct.unpack_from("<7s", record, 4)[0]
-        objectid = int.from_bytes(objectid, byteorder="little", signed=False)
+        objectid = _unpack_integer(7, record, 4)
         return {'namehash': namehash, 'objectid':objectid}
 
 
@@ -434,8 +439,7 @@ class BTreeV2GroupOrders(BTreeV2):
 
     def _parse_record(self, record):
         creationorder = struct.unpack_from("<Q", record, 0)[0]
-        objectid = struct.unpack_from("<7s", record, 4)[0]
-        objectid = int.from_bytes(objectid, byteorder="little", signed=False)
+        objectid = _unpack_integer(7, record, 4)
         return {'creationorder': creationorder, 'objectid':objectid}
 
 

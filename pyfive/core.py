@@ -50,3 +50,10 @@ def _unpack_struct_from(structure, buf, offset=0):
     fmt = '<' + ''.join(structure.values())
     values = struct.unpack_from(fmt, buf, offset=offset)
     return OrderedDict(zip(structure.keys(), values))
+
+
+def _unpack_integer(nbytes, buf, offset=0):
+    """ Read an integer with an uncommon number of bytes. """
+    fmt = "{}s".format(nbytes)
+    values = struct.unpack_from(fmt, buf, offset=offset)
+    return int.from_bytes(values[0], byteorder="little", signed=False)

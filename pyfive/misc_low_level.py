@@ -4,8 +4,11 @@ import struct
 from math import log2
 from collections import OrderedDict
 
-from .core import _padded_size, _structure_size
-from .core import _unpack_struct_from, _unpack_struct_from_file
+from .core import _padded_size
+from .core import _structure_size
+from .core import _unpack_struct_from
+from .core import _unpack_struct_from_file
+from .core import _unpack_integer
 from .core import InvalidHDF5File
 
 
@@ -190,31 +193,138 @@ class FractalHeap(object):
             ('block_offset', '{}s'.format(block_offset_size))
         ))
         self.indirect_block_header = h.copy()
-        if (header["flags"] & 1) == 1:
-            h['checksum'] = 'Q'
+        self.indirect_block_header_size = _structure_size(h)
+        if (header["flags"] & 2) == 2:
+            h['checksum'] = 'I'
         self.direct_block_header = h
+        self.direct_block_header_size = _structure_size(h)
+
+        n = header['maximum_heap_size']
+        self._managed_object_offset_size = self._required_bytes(n)
+        n = min(n, header['max_managed_object_size'])
+        self._managed_object_length_size = self._required_bytes(n)
 
         maximum_dblock_size = header['maximum_direct_block_size']
         start_block_size = header['starting_block_size']
         table_width = header['table_width']
+        if not start_block_size:
+            assert NotImplementedError
+
         log2_maximum_dblock_size = int(log2(maximum_dblock_size))
         assert 2**log2_maximum_dblock_size == maximum_dblock_size
         log2_start_block_size = int(log2(start_block_size))
         assert 2**log2_start_block_size == start_block_size
         self._max_direct_nrows = log2_maximum_dblock_size - log2_start_block_size + 2
-        if table_width:
-            log2_table_width = int(log2(table_width))
-            assert 2**log2_table_width == table_width
-            self._indirect_nrows_sub = log2_table_width + log2_start_block_size - 1
+
+        log2_table_width = int(log2(table_width))
+        assert 2**log2_table_width == table_width
+        self._indirect_nrows_sub = log2_table_width + log2_start_block_size - 1
+
+        self.header = header
+
+        if False:
+            from pprint import pprint
+            print("FRACTAL HEAP")
+            print(f"h5debug test.h5 {offset}")
+            pprint(header)
+
+        blocks = list()
+        root_address = header["root_block_address"]
+        if root_address:
+            nrows = header["indirect_current_rows_count"]
+            if nrows:
+                for data in self._iter_indirect_block(fh, root_address, nrows):
+                    blocks.append(data)
+            else:
+                data = self._read_direct_block(fh, root_address, start_block_size)
+                blocks.append(data)
+        self._direct_blocks = blocks
+
+    def _read_direct_block(self, fh, offset, block_size):
+        fh.seek(offset)
+        header = _unpack_struct_from_file(self.direct_block_header, fh)
+        header["signature"] == b"FHDB"
+        header["block_offset"] = int.from_bytes(header["block_offset"], byteorder="little", signed=False)
+        assert block_size - self.direct_block_header_size
+
+        if False:
+            from pprint import pprint
+            print("\nDIRECT")
+            print(f" h5debug test.h5 {offset} {header['heap_header_adddress']} {block_size}")
+            pprint(header)
+            print(" header size", self.direct_block_header_size)
+            #print(data)
+
+        firstbyte = fh.read(1)[0]
+        version = firstbyte >> 6
+        idtype = (firstbyte >> 4) & 3
+        assert version == 0
+        if idtype == 0: # managed
+            nbytes = self._managed_object_offset_size
+            address = _unpack_integer(nbytes, fh.read(nbytes))
+            nbytes = self._managed_object_length_size
+            size = _unpack_integer(nbytes, fh.read(nbytes))
+            print(" managed object", address, size)
+            return address, size
+        elif idtype == 1: # tiny
+            raise NotImplementedError
+        elif idtype == 2: # huge
+            raise NotImplementedError
         else:
-            self._indirect_nrows_sub = 0
+            assert False, idtype
 
-        self._header = header
-        # root_block_address
+    @staticmethod
+    def _required_bytes(integer):
+        """ Calculate the minimal required bytes to contain an integer. """
+        return (max(integer.bit_length(), 1) + 7) // 8
 
-    def _indirect_info(self, block_size):
-        nrows = log2(block_size) - self._indirect_nrows_sub
-        table_width = header['table_width']
+    def _read_integral(self, fh, nbytes):
+        num = fh.read(nbytes)
+        num = struct.unpack("{}s".format(nbytes), offset)[0]
+        num = int.from_bytes(num, byteorder="little", signed=False)
+
+    def _iter_indirect_block(self, fh, offset, nrows):
+        fh.seek(offset)
+        header = _unpack_struct_from_file(self.indirect_block_header, fh)
+        header["signature"] == b"FHIB"
+        header["block_offset"] = int.from_bytes(header["block_offset"], byteorder="little", signed=False)
+        ndirect, nindirect = self._indirect_info(nrows)
+
+        direct_blocks = list()
+        for i in range(ndirect):
+            address = struct.unpack('<Q', fh.read(8))[0]
+            if address == 0xffffffffffffffff:
+                break
+            block_size = self._calc_block_size(i)
+            direct_blocks.append((address, block_size))
+
+        indirect_blocks = list()
+        for i in range(ndirect, ndirect+nindirect):
+            address = struct.unpack('<Q', fh.read(8))[0]
+            if address == 0xffffffffffffffff:
+                break
+            block_size = self._calc_block_size(i)
+            nrows = self._iblock_nrows_from_block_size(block_size)
+            indirect_blocks.append((address, nrows))
+
+        for address, block_size in direct_blocks:
+            yield self._read_direct_block(fh, address, block_size)
+
+        for address, nrows in indirect_blocks:
+            for data in self._iter_indirect_block(fh, address, nrows):
+                yield data
+
+    def _calc_block_size(self, iblock):
+        row = iblock//self.header["table_width"]
+        return 2**max(row-1, 0) * self.header['starting_block_size']
+
+    def _iblock_nrows_from_block_size(self, block_size):
+        log2_block_size = int(log2(block_size))
+        assert 2**log2_block_size == block_size
+        return log2_block_size - self._indirect_nrows_sub
+
+    def _indirect_info(self, nrows):
+        table_width = self.header['table_width']
         nobjects = nrows * table_width
         ndirect_max = self._max_direct_nrows * table_width
         if nrows <= ndirect_max:
