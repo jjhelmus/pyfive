@@ -199,12 +199,12 @@ class FractalHeap(object):
         self.direct_block_header = h
         self.direct_block_header_size = _structure_size(h)
 
+        maximum_dblock_size = header['maximum_direct_block_size']
         n = header['maximum_heap_size']
         self._managed_object_offset_size = self._required_bytes(n)
-        n = min(n, header['max_managed_object_size'])
+        n = min(maximum_dblock_size, header['max_managed_object_size'])
         self._managed_object_length_size = self._required_bytes(n)
 
-        maximum_dblock_size = header['maximum_direct_block_size']
         start_block_size = header['starting_block_size']
         table_width = header['table_width']
         if not start_block_size:
@@ -222,30 +222,34 @@ class FractalHeap(object):
 
         self.header = header
 
-        if False:
+        if True:
             from pprint import pprint
             print("FRACTAL HEAP")
             print(f"h5debug test.h5 {offset}")
             pprint(header)
 
-        blocks = list()
+        self.nobjects = header["managed_object_count"] + header["huge_object_count"] + header["tiny_object_count"]
+
+        self.objects = objects = dict()
         root_address = header["root_block_address"]
         if root_address:
             nrows = header["indirect_current_rows_count"]
             if nrows:
-                for data in self._iter_indirect_block(fh, root_address, nrows):
-                    blocks.append(data)
+                for addr, size in self._iter_indirect_block(fh, root_address, nrows):
+                    objects[addr] = size
             else:
-                data = self._read_direct_block(fh, root_address, start_block_size)
-                blocks.append(data)
-        self._direct_blocks = blocks
+                for addr, size in self._read_direct_block(fh, root_address, start_block_size):
+                    objects[addr] = size
 
     def _read_direct_block(self, fh, offset, block_size):
         fh.seek(offset)
         header = _unpack_struct_from_file(self.direct_block_header, fh)
         header["signature"] == b"FHDB"
         header["block_offset"] = int.from_bytes(header["block_offset"], byteorder="little", signed=False)
-        size_left = block_size - self.direct_block_header_size
+
+        data_offset = 0
+        data_size = block_size - self.direct_block_header_size
+        data = fh.read(data_size)
 
         if True:
             from pprint import pprint
@@ -253,22 +257,26 @@ class FractalHeap(object):
             print(f" h5debug test.h5 {offset} {header['heap_header_adddress']} {block_size}")
             pprint(header)
             print(" header size", self.direct_block_header_size)
+            print(" data size", data_size)
+            print(" managed object ID size", 1 + self._managed_object_offset_size + self._managed_object_length_size)
+            print(" block data ", data[:16].hex(), "...")
 
-        firstbyte = fh.read(1)[0]
-        size_left -= 1
-        version = firstbyte >> 6
-        idtype = (firstbyte >> 4) & 3
+        # TODO: loop over the objects in this direct block. How many?
+        firstbyte = data[data_offset]
+        data_offset += 1
+        reserved = firstbyte & 15  # bit 0-3
+        idtype = (firstbyte >> 4) & 3  # bit 4-5
+        version = firstbyte >> 6  # bit 6-7
         assert version == 0
         if idtype == 0: # managed
             nbytes = self._managed_object_offset_size
-            address = _unpack_integer(nbytes, fh.read(nbytes))
-            size_left -= nbytes
+            address = _unpack_integer(nbytes, data, data_offset)
+            data_offset += nbytes
             nbytes = self._managed_object_length_size
-            size = _unpack_integer(nbytes, fh.read(nbytes))
-            size_left -= nbytes
-            print(" managed object", address, size)
-            print(fh.read(size_left))
-            return address, size
+            size = _unpack_integer(nbytes, data, data_offset)
+            data_offset += nbytes
+            print(" first managed object", (version, idtype, reserved), address, size)
+            yield address, size
         elif idtype == 1: # tiny
             raise NotImplementedError
         elif idtype == 2: # huge
@@ -311,11 +319,12 @@ class FractalHeap(object):
             indirect_blocks.append((address, nrows))
 
         for address, block_size in direct_blocks:
-            yield self._read_direct_block(fh, address, block_size)
+            for obj in self._read_direct_block(fh, address, block_size):
+                yield obj
 
         for address, nrows in indirect_blocks:
-            for data in self._iter_indirect_block(fh, address, nrows):
-                yield data
+            for obj in self._iter_indirect_block(fh, address, nrows):
+                yield obj
 
     def _calc_block_size(self, iblock):
         row = iblock//self.header["table_width"]

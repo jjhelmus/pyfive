@@ -377,7 +377,7 @@ class BTreeV2(AbstractBTree):
             record = self.fh.read(record_size)
             keys.append(self._parse_record(record))
 
-        if False:
+        if True:
             from pprint import pprint
             print(f"h5debug test.h5 {offset} {self.offset} {nrecords}")
             print("\nRECORDS")
