@@ -275,7 +275,7 @@ class FractalHeap(object):
             nbytes = self._managed_object_length_size
             size = _unpack_integer(nbytes, data, data_offset)
             data_offset += nbytes
-            print(" first managed object", (version, idtype, reserved), address, size)
+            print(" first managed object", (version, idtype, reserved), "address", address, "size", size)
             yield address, size
         elif idtype == 1: # tiny
             raise NotImplementedError
