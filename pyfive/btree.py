@@ -379,6 +379,7 @@ class BTreeV2(AbstractBTree):
 
         if False:
             from pprint import pprint
+            print(f"h5debug test.h5 {offset} {self.offset} {nrecords}")
             print("\nRECORDS")
             pprint(keys)
 

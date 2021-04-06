@@ -245,26 +245,29 @@ class FractalHeap(object):
         header = _unpack_struct_from_file(self.direct_block_header, fh)
         header["signature"] == b"FHDB"
         header["block_offset"] = int.from_bytes(header["block_offset"], byteorder="little", signed=False)
-        assert block_size - self.direct_block_header_size
+        size_left = block_size - self.direct_block_header_size
 
-        if False:
+        if True:
             from pprint import pprint
             print("\nDIRECT")
             print(f" h5debug test.h5 {offset} {header['heap_header_adddress']} {block_size}")
             pprint(header)
             print(" header size", self.direct_block_header_size)
-            #print(data)
 
         firstbyte = fh.read(1)[0]
+        size_left -= 1
         version = firstbyte >> 6
         idtype = (firstbyte >> 4) & 3
         assert version == 0
         if idtype == 0: # managed
             nbytes = self._managed_object_offset_size
             address = _unpack_integer(nbytes, fh.read(nbytes))
+            size_left -= nbytes
             nbytes = self._managed_object_length_size
             size = _unpack_integer(nbytes, fh.read(nbytes))
+            size_left -= nbytes
             print(" managed object", address, size)
+            print(fh.read(size_left))
             return address, size
         elif idtype == 1: # tiny
             raise NotImplementedError
