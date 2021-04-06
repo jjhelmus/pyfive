@@ -439,7 +439,7 @@ class BTreeV2GroupOrders(BTreeV2):
 
     def _parse_record(self, record):
         creationorder = struct.unpack_from("<Q", record, 0)[0]
-        objectid = _unpack_integer(7, record, 4)
+        objectid = _unpack_integer(7, record, 8)
         return {'creationorder': creationorder, 'objectid':objectid}
 
 
