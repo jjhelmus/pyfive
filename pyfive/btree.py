@@ -379,9 +379,9 @@ class BTreeV2(AbstractBTree):
 
         if True:
             from pprint import pprint
-            print(f"h5debug test.h5 {offset} {self.offset} {nrecords}")
-            print("\nRECORDS")
+            print("\nB-TREE V2 RECORDS")
             pprint(keys)
+            print(f"h5debug test.h5 {offset} {self.offset} {nrecords}")
 
         addresses = []
         fmts = self.address_formats[node_level]

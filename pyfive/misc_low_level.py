@@ -222,7 +222,7 @@ class FractalHeap(object):
 
         self.header = header
 
-        if True:
+        if False:
             from pprint import pprint
             print("FRACTAL HEAP")
             print(f"h5debug test.h5 {offset}")
@@ -253,7 +253,7 @@ class FractalHeap(object):
 
         if True:
             from pprint import pprint
-            print("\nDIRECT")
+            print("\nFRACTAL HEAP DIRECT BLOCK")
             print(f" h5debug test.h5 {offset} {header['heap_header_adddress']} {block_size}")
             pprint(header)
             print(" header size", self.direct_block_header_size)
