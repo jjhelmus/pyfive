@@ -13,9 +13,10 @@ from .core import _padded_size, _structure_size
 from .core import _unpack_struct_from, _unpack_struct_from_file
 from .core import InvalidHDF5File
 from .core import Reference
-from .btree import BTree, BTreeRawDataChunks
+from .btree import BTreeV1Groups, BTreeV1RawDataChunks
+from .btree import BTreeV2GroupNames, BTreeV2GroupOrders
 from .btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
-from .misc_low_level import Heap, SymbolTable, GlobalHeap
+from .misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap
 
 
 class DataObjects(object):
@@ -384,10 +385,35 @@ class DataObjects(object):
         version, dims, layout_class, property_offset = (
             self._get_data_message_properties(msg_offset))
 
+        if layout_class == 0:  # compact storage
+            raise NotImplementedError("Compact storage")
+        elif layout_class == 1:  # contiguous storage
+            return self._get_contiguous_data(property_offset)
         if layout_class == 2:  # chunked storage
             return self._get_chunked_data(msg_offset)
 
-        assert layout_class == 1
+    def _get_data_message_properties(self, msg_offset):
+        """ Return the message properties of the DataObject. """
+        dims, layout_class, property_offset = None, None, None
+        version, arg1, arg2 = struct.unpack_from(
+            '<BBB', self.msg_data, msg_offset)
+        if (version == 1) or (version == 2):
+            dims = arg1
+            layout_class = arg2
+            property_offset = msg_offset
+            property_offset += struct.calcsize('<BBB')
+            # reserved fields: 1 byte, 1 int
+            property_offset += struct.calcsize('<BI')
+            # compact storage (layout class 0) not supported:
+            assert (layout_class == 1) or (layout_class == 2)
+        elif (version == 3) or (version == 4):
+            layout_class = arg1
+            property_offset = msg_offset
+            property_offset += struct.calcsize('<BB')
+        assert (version >= 1) and (version <= 4)
+        return version, dims, layout_class, property_offset
+
+    def _get_contiguous_data(self, property_offset):
         data_offset, = struct.unpack_from('<Q', self.msg_data, property_offset)
 
         if data_offset == UNDEFINED_ADDRESS:
@@ -411,31 +437,10 @@ class DataObjects(object):
             else:
                 raise NotImplementedError('datatype not implemented')
 
-    def _get_data_message_properties(self, msg_offset):
-        """ Return the message properties of the DataObject. """
-        dims, layout_class, property_offset = None, None, None
-        version, arg1, arg2 = struct.unpack_from(
-            '<BBB', self.msg_data, msg_offset)
-        if (version == 1) or (version == 2):
-            dims = arg1
-            layout_class = arg2
-            property_offset = msg_offset
-            property_offset += struct.calcsize('<BBB')
-            # reserved fields: 1 byte, 1 int
-            property_offset += struct.calcsize('<BI')
-            # compact storage (layout class 0) not supported:
-            assert (layout_class == 1) or (layout_class == 2)
-        elif (version == 3) or (version == 4):
-            layout_class = arg1
-            property_offset = msg_offset
-            property_offset += struct.calcsize('<BB')
-        assert (version >= 1) and (version <= 4)
-        return version, dims, layout_class, property_offset
-
     def _get_chunked_data(self, offset):
         """ Return data which is chunked. """
         self._get_chunk_params()
-        chunk_btree = BTreeRawDataChunks(
+        chunk_btree = BTreeV1RawDataChunks(
             self.fh, self._chunk_address, self._chunk_dims)
         return chunk_btree.construct_data_from_chunks(
             self.chunks, self.shape, self.dtype, self.filter_pipeline)
@@ -482,74 +487,131 @@ class DataObjects(object):
 
     def get_links(self):
         """ Return a dictionary of link_name: offset """
-        sym_tbl_msgs = self.find_msg_type(SYMBOL_TABLE_MSG_TYPE)
-        if sym_tbl_msgs:
-            return self._get_links_from_symbol_tables(sym_tbl_msgs)
-        return self._get_links_from_link_msgs()
+        return dict(self.iter_links())
 
-    def _get_links_from_symbol_tables(self, sym_tbl_msgs):
+    def iter_links(self):
+        for msg in self.msgs:
+            if msg['type'] == SYMBOL_TABLE_MSG_TYPE:
+                yield from self._iter_links_from_symbol_tables(msg)
+            elif msg['type'] == LINK_MSG_TYPE:
+                yield self._get_link_from_link_msg(msg)
+            elif msg['type'] == LINK_INFO_MSG_TYPE:
+                yield from self._iter_link_from_link_info_msg(msg)
+
+    def _iter_links_from_symbol_tables(self, sym_tbl_msg):
         """ Return a dict of link_name: offset from a symbol table. """
-        assert len(sym_tbl_msgs) == 1
-        assert sym_tbl_msgs[0]['size'] == 16
-        symbol_table_message = _unpack_struct_from(
+        assert sym_tbl_msg['size'] == 16
+        data = _unpack_struct_from(
             SYMBOL_TABLE_MSG, self.msg_data,
-            sym_tbl_msgs[0]['offset_to_message'])
+            sym_tbl_msg['offset_to_message'])
+        yield from self._iter_links_btree_v1(data['btree_address'], data['heap_address'])
 
-        btree = BTree(self.fh, symbol_table_message['btree_address'])
-        heap = Heap(self.fh, symbol_table_message['heap_address'])
-        links = {}
+    def _iter_links_btree_v1(self, btree_address, heap_address):
+        """ Retrieve links from symbol table message. """
+        btree = BTreeV1Groups(self.fh, btree_address)
+        heap = Heap(self.fh, heap_address)
         for symbol_table_address in btree.symbol_table_addresses():
             table = SymbolTable(self.fh, symbol_table_address)
             table.assign_name(heap)
-            links.update(table.get_links(heap))
-        return links
+            yield from table.get_links(heap).items()
 
-    def _get_links_from_link_msgs(self):
-        """ Retrieve links from link messages. """
-        links = {}
-        link_msgs = self.find_msg_type(LINK_MSG_TYPE)
-        for link_msg in link_msgs:
-            offset = link_msg['offset_to_message']
-            version, flags = struct.unpack_from('<BB', self.msg_data, offset)
-            offset += 2
-            assert version == 1
-            size_of_length_of_link_name = 2**(flags & 3)
-            link_type_field_present = flags & 2**3
-            link_name_character_set_field_present = flags & 2**4
-            if link_type_field_present:
-                link_type = struct.unpack_from('<B', self.msg_data, offset)[0]
-                offset += 1
-            else:
-                link_type = 0
-            assert link_type in [0,1]
+    def _get_link_from_link_msg(self, link_msg):
+        """ Retrieve link from link message. """
+        offset = link_msg['offset_to_message']
+        return self._decode_link_msg(self.msg_data, offset)[1]
 
-            if flags & 2**2:
-                # creation order present
-                offset += 8
-            if link_name_character_set_field_present:
-                link_name_character_set = struct.unpack_from('<B', self.msg_data, offset)[0]
-                offset += 1
-            else:
-                link_name_character_set = 0
+    @staticmethod
+    def _decode_link_msg(data, offset, dereference=True):
+        version, flags = struct.unpack_from('<BB', data, offset)
+        offset += 2
+        assert version == 1
 
-            encoding = 'ascii' if link_name_character_set == 0 else 'utf-8'
+        size_of_length_of_link_name = 2**(flags & 3)
+        link_type_field_present = flags & 2**3
+        link_name_character_set_field_present = flags & 2**4
+        ordered = flags & 2**2
 
-            name_size_fmt = ["<B", "<H", "<I", "<Q"][flags & 3]
-            name_size = struct.unpack_from(name_size_fmt, self.msg_data, offset)[0]
-            offset += size_of_length_of_link_name
-            name = self.msg_data[offset:offset+name_size].decode(encoding)
-            offset += name_size
+        if link_type_field_present:
+            link_type = struct.unpack_from('<B', data, offset)[0]
+            offset += 1
+        else:
+            link_type = 0
+        assert link_type in [0,1]
 
+        if ordered:
+            creationorder = struct.unpack_from('<Q', data, offset)[0]
+            offset += 8
+        else:
+            creationorder = None
+
+        if link_name_character_set_field_present:
+            link_name_character_set = struct.unpack_from('<B', data, offset)[0]
+            offset += 1
+        else:
+            link_name_character_set = 0
+
+        encoding = 'ascii' if link_name_character_set == 0 else 'utf-8'
+
+        name_size_fmt = ["<B", "<H", "<I", "<Q"][flags & 3]
+        name_size = struct.unpack_from(name_size_fmt, data, offset)[0]
+        offset += size_of_length_of_link_name
+
+        name = data[offset:offset+name_size].decode(encoding)
+        offset += name_size
+
+        if dereference:
             if link_type == 0:
                 # hard link
-                address = struct.unpack_from('<Q', self.msg_data, offset)[0]
-                links[name] = address
+                address = struct.unpack_from('<Q', data, offset)[0]
             elif link_type == 1:
                 # soft link
-                length_of_soft_link_value = struct.unpack_from('<H', self.msg_data, offset)[0]
+                length_of_soft_link_value = struct.unpack_from('<H', data, offset)[0]
                 offset += 2
-                links[name] = self.msg_data[offset:offset+length_of_soft_link_value].decode(encoding)
-        return links
+                address = data[offset:offset+length_of_soft_link_value].decode(encoding)
+
+        return creationorder, (name, address)
+
+    def _iter_link_from_link_info_msg(self, info_msg):
+        """ Retrieve links from link info message. """
+        offset = info_msg['offset_to_message']
+        data = self._decode_link_info_msg(self.msg_data, offset)
+
+        heap_address = data["heap_address"]
+        name_btree_address = data["name_btree_address"]
+        order_btree_address = data.get("order_btree_address", None)
+        if name_btree_address:
+            yield from self._iter_links_btree_v2(name_btree_address, order_btree_address, heap_address)
+
+    def _iter_links_btree_v2(self, name_btree_address, order_btree_address, heap_address):
+        """ Retrieve links from symbol table message. """
+        heap = FractalHeap(self.fh, heap_address)
+        if order_btree_address:
+            btree = BTreeV2GroupOrders(self.fh, order_btree_address)
+        else:
+            btree = BTreeV2GroupNames(self.fh, name_btree_address)
+        adict = dict()
+        for record in btree.iter_records():
+            data = heap.get_data(record["heapid"])
+            creationorder, item = self._decode_link_msg(data, 0)
+            adict[creationorder] = item
+        for creationorder, value in sorted(adict.items()):
+            yield value
+
+    @staticmethod
+    def _decode_link_info_msg(data, offset):
+        version, flags = struct.unpack_from('<BB', data, offset)
+        assert version == 0
+        offset += 2
+        if flags & 1:
+            # creation order present
+            offset += 8
+
+        if flags & 2:
+            fmt = LINK_INFO_MSG2
+        else:
+            fmt = LINK_INFO_MSG1
+        data = _unpack_struct_from(fmt, data, offset)
+        return {k: None if v == 0xffffffffffffffff else v for k, v in data.items()}
 
     @property
     def is_dataset(self):
@@ -677,6 +739,20 @@ SYMBOL_TABLE_MSG = OrderedDict((
     ('btree_address', 'Q'),     # 8 bytes addressing
     ('heap_address', 'Q'),      # 8 byte addressing
 ))
+
+
+LINK_INFO_MSG1 = OrderedDict((
+    ('heap_address', 'Q'),         # 8 byte addressing
+    ('name_btree_address', 'Q'),   # 8 bytes addressing
+))
+
+
+LINK_INFO_MSG2 = OrderedDict((
+    ('heap_address', 'Q'),         # 8 byte addressing
+    ('name_btree_address', 'Q'),   # 8 bytes addressing
+    ('order_btree_address', 'Q')   # 8 bytes addressing
+))
+
 
 # IV.A.2.f. The Data Storage - Fill Value Message
 FILLVAL_MSG_V1V2 = OrderedDict((
