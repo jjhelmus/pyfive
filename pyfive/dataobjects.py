@@ -521,7 +521,7 @@ class DataObjects(object):
         return self._decode_link_msg(self.msg_data, offset)[1]
 
     @staticmethod
-    def _decode_link_msg(data, offset, dereference=True):
+    def _decode_link_msg(data, offset):
         version, flags = struct.unpack_from('<BB', data, offset)
         offset += 2
         assert version == 1
@@ -559,15 +559,14 @@ class DataObjects(object):
         name = data[offset:offset+name_size].decode(encoding)
         offset += name_size
 
-        if dereference:
-            if link_type == 0:
-                # hard link
-                address = struct.unpack_from('<Q', data, offset)[0]
-            elif link_type == 1:
-                # soft link
-                length_of_soft_link_value = struct.unpack_from('<H', data, offset)[0]
-                offset += 2
-                address = data[offset:offset+length_of_soft_link_value].decode(encoding)
+        if link_type == 0:
+            # hard link
+            address = struct.unpack_from('<Q', data, offset)[0]
+        elif link_type == 1:
+            # soft link
+            length_of_soft_link_value = struct.unpack_from('<H', data, offset)[0]
+            offset += 2
+            address = data[offset:offset+length_of_soft_link_value].decode(encoding)
 
         return creationorder, (name, address)
 
