@@ -13,6 +13,7 @@ from .core import _padded_size, _structure_size
 from .core import _unpack_struct_from, _unpack_struct_from_file
 from .core import InvalidHDF5File
 from .core import Reference
+from .core import UNDEFINED_ADDRESS
 from .btree import BTreeV1Groups, BTreeV1RawDataChunks
 from .btree import BTreeV2GroupNames, BTreeV2GroupOrders
 from .btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
@@ -610,7 +611,7 @@ class DataObjects(object):
         else:
             fmt = LINK_INFO_MSG1
         data = _unpack_struct_from(fmt, data, offset)
-        return {k: None if v == 0xffffffffffffffff else v for k, v in data.items()}
+        return {k: None if v == UNDEFINED_ADDRESS else v for k, v in data.items()}
 
     @property
     def is_dataset(self):
@@ -643,8 +644,6 @@ def determine_data_shape(buf, offset):
 # Values for all fields in this document should be treated as unsigned
 # integers, unless otherwise noted in the description of a field. Additionally,
 # all metadata fields are stored in little-endian byte order.
-
-UNDEFINED_ADDRESS = struct.unpack('<Q', b'\xff\xff\xff\xff\xff\xff\xff\xff')[0]
 
 
 GLOBAL_HEAP_ID = OrderedDict((

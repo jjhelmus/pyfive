@@ -10,6 +10,7 @@ from .core import _unpack_struct_from
 from .core import _unpack_struct_from_file
 from .core import _unpack_integer
 from .core import InvalidHDF5File
+from .core import UNDEFINED_ADDRESS
 
 
 class SuperBlock(object):
@@ -176,12 +177,12 @@ class FractalHeap(object):
         if header['filter_info_size']:
             raise NotImplementedError
 
-        if header["btree_address_huge_objects"] == 0xffffffffffffffff:
+        if header["btree_address_huge_objects"] == UNDEFINED_ADDRESS:
             header["btree_address_huge_objects"] = None
         else:
             raise NotImplementedError
 
-        if header["root_block_address"] == 0xffffffffffffffff:
+        if header["root_block_address"] == UNDEFINED_ADDRESS:
             header["root_block_address"] = None
 
         nbits = header["log2_maximum_heap_size"]
@@ -289,7 +290,7 @@ class FractalHeap(object):
         direct_blocks = list()
         for i in range(ndirect):
             address = struct.unpack('<Q', fh.read(8))[0]
-            if address == 0xffffffffffffffff:
+            if address == UNDEFINED_ADDRESS:
                 break
             block_size = self._calc_block_size(i)
             direct_blocks.append((address, block_size))
@@ -297,7 +298,7 @@ class FractalHeap(object):
         indirect_blocks = list()
         for i in range(ndirect, ndirect+nindirect):
             address = struct.unpack('<Q', fh.read(8))[0]
-            if address == 0xffffffffffffffff:
+            if address == UNDEFINED_ADDRESS:
                 break
             block_size = self._calc_block_size(i)
             nrows = self._iblock_nrows_from_block_size(block_size)

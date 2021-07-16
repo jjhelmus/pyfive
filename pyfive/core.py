@@ -7,6 +7,9 @@ from math import ceil
 import struct
 
 
+UNDEFINED_ADDRESS = 0xffffffffffffffff
+
+
 class InvalidHDF5File(Exception):
     """ Exception raised when an invalid HDF5 file is detected. """
     pass
