@@ -345,33 +345,61 @@ class DataObjects(object):
         offset = filter_msgs[0]['offset_to_message']
         version, nfilters = struct.unpack_from('<BB', self.msg_data, offset)
         offset += struct.calcsize('<BB')
-        if version != 1:
-            raise NotImplementedError("only version 1 filters supported. ")
-
-        res0, res1 = struct.unpack_from('<HI', self.msg_data, offset)
-        offset += struct.calcsize('<HI')
 
         filters = []
-        for _ in range(nfilters):
-            filter_info = _unpack_struct_from(
-                FILTER_PIPELINE_DESCR_V1, self.msg_data, offset)
-            offset += FILTER_PIPELINE_DESCR_V1_SIZE
+        if version == 1:
+            res0, res1 = struct.unpack_from('<HI', self.msg_data, offset)
+            offset += struct.calcsize('<HI')
 
-            padded_name_length = _padded_size(filter_info['name_length'], 8)
-            fmt = '<' + str(padded_name_length) + 's'
-            filter_name = struct.unpack_from(fmt, self.msg_data, offset)[0]
-            filter_info['filter_name'] = filter_name
-            offset += padded_name_length
+            for _ in range(nfilters):
+                filter_info = _unpack_struct_from(
+                    FILTER_PIPELINE_DESCR_V1, self.msg_data, offset)
+                offset += FILTER_PIPELINE_DESCR_V1_SIZE
 
-            fmt = '<' + str(filter_info['client_data_values']) + 'I'
-            client_data = struct.unpack_from(fmt, self.msg_data, offset)
-            filter_info['client_data'] = client_data
-            offset += 4 * filter_info['client_data_values']
+                padded_name_length = _padded_size(filter_info['name_length'], 8)
+                fmt = '<' + str(padded_name_length) + 's'
+                filter_name = struct.unpack_from(fmt, self.msg_data, offset)[0]
+                filter_info['filter_name'] = filter_name
+                offset += padded_name_length
 
-            if filter_info['client_data_values'] % 2:
-                offset += 4  # odd number of client data values padded
+                fmt = '<' + str(filter_info['client_data_values']) + 'I'
+                client_data = struct.unpack_from(fmt, self.msg_data, offset)
+                filter_info['client_data'] = client_data
+                offset += 4 * filter_info['client_data_values']
 
-            filters.append(filter_info)
+                if filter_info['client_data_values'] % 2:
+                    offset += 4  # odd number of client data values padded
+
+                filters.append(filter_info)
+
+        elif version == 2:
+            for _ in range(nfilters):
+                filter_info = OrderedDict()
+                filter_id = struct.unpack_from("<H", self.msg_data, offset)[0]
+                offset += 2
+                filter_info['filter_id'] = filter_id
+                name_length = 0
+                if filter_id > 255:
+                    # name and name length not encoded for built-in filters
+                    name_length = struct.unpack_from('<H', self.msg_data, offset)[0]
+                    offset += 2
+                flags = struct.unpack_from('<H', self.msg_data, offset)[0]
+                offset += 2
+                filter_info['optional'] = (flags & 1) > 0
+                num_client_values = struct.unpack_from('<H', self.msg_data, offset)[0]
+                offset += 2
+                name = ""
+                if name_length > 0:
+                    name = struct.unpack_from("{:d}s".format(name_length), self.msg_data, offset)[0]
+                    offset += name_length
+                filter_info['name'] = name
+                client_values = struct.unpack_from("<{:d}i".format(num_client_values), self.msg_data, offset)
+                offset += (4 * num_client_values)
+                filter_info['client_data_values'] = client_values
+
+                filters.append(filter_info)
+        else:
+            raise NotImplementedError("filter pipeline description version > 2 is not supported")
         self._filter_pipeline = filters
         return self._filter_pipeline
 
