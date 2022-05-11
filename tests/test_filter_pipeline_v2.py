@@ -16,4 +16,4 @@ def test_filter_pipeline_descr_v2():
         assert 'data' in hfile
         d = hfile['data']
         assert d.shape == (10,10,10)
-        assert_almost_equal(d[0,0,0], 1.1)
+        assert_almost_equal(d[0,0,0], 1.0)
