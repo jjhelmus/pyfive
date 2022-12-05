@@ -613,7 +613,8 @@ class DataObjects(object):
     def _iter_links_btree_v2(self, name_btree_address, order_btree_address, heap_address):
         """ Retrieve links from symbol table message. """
         heap = FractalHeap(self.fh, heap_address)
-        if order_btree_address:
+        ordered = (order_btree_address is not None)
+        if ordered:
             btree = BTreeV2GroupOrders(self.fh, order_btree_address)
         else:
             btree = BTreeV2GroupNames(self.fh, name_btree_address)
@@ -621,7 +622,8 @@ class DataObjects(object):
         for record in btree.iter_records():
             data = heap.get_data(record["heapid"])
             creationorder, item = self._decode_link_msg(data, 0)
-            adict[creationorder] = item
+            key = creationorder if ordered else item[0]
+            adict[key] = item
         for creationorder, value in sorted(adict.items()):
             yield value
 
