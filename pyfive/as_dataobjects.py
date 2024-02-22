@@ -57,7 +57,7 @@ class ADataObjects(DataObjects):
                         size = node_key['chunk_size']
                     start = node_key['chunk_offset'][:-1]
                     region = [slice(i, i+j) for i, j in zip(start, self.shape)]
-                    self._as_chunk_index.append([region, start, size])
+                    self._as_chunk_index.append([region, start, addr, size])
 
         if args is not None:
             return NotImplementedError
