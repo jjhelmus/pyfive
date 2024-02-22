@@ -311,6 +311,11 @@ class Dataset(object):
         return self._dataobjects.shape
 
     @property
+    def maxshape(self):
+        """ maxshape attribute. (None for unlimited dimensions) """
+        return self._dataobjects.maxshape
+
+    @property
     def ndim(self):
         """ number of dimensions. """
         return len(self.shape)

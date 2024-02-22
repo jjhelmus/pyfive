@@ -246,7 +246,16 @@ class DataObjects(object):
         """ Shape of the dataset. """
         msg = self.find_msg_type(DATASPACE_MSG_TYPE)[0]
         msg_offset = msg['offset_to_message']
-        return determine_data_shape(self.msg_data, msg_offset)
+        shape, maxshape = determine_data_shape(self.msg_data, msg_offset)
+        return shape
+
+    @property
+    def maxshape(self):
+        """ Maximum Shape of the dataset. (None for unlimited dimension) """
+        msg = self.find_msg_type(DATASPACE_MSG_TYPE)[0]
+        msg_offset = msg['offset_to_message']
+        shape, maxshape = determine_data_shape(self.msg_data, msg_offset)
+        return maxshape
 
     @property
     def fillvalue(self):
@@ -648,6 +657,8 @@ class DataObjects(object):
         """ True when DataObjects points to a dataset, False for a group. """
         return len(self.find_msg_type(DATASPACE_MSG_TYPE)) > 0
 
+UNLIMITED_SIZE = struct.unpack('<Q', b'\xff\xff\xff\xff\xff\xff\xff\xff')[0]
+
 
 def determine_data_shape(buf, offset):
     """ Return the shape of the dataset pointed to in a Dataspace message. """
@@ -665,9 +676,15 @@ def determine_data_shape(buf, offset):
 
     ndims = header['dimensionality']
     dim_sizes = struct.unpack_from('<' + 'Q' * ndims, buf, offset)
+    offset += 8 * ndims
     # Dimension maximum size follows if header['flags'] bit 0 set
+    if header['flags'] & 2**0:
+        maxshape = struct.unpack_from('<' + 'Q' * ndims, buf, offset)
+        maxshape = tuple((None if d == UNLIMITED_SIZE else d) for d in maxshape)
+    else:
+        maxshape = dim_sizes
     # Permutation index follows if header['flags'] bit 1 set
-    return dim_sizes
+    return dim_sizes, maxshape
 
 
 # HDF5 Structures
