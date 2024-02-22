@@ -197,7 +197,7 @@ class DataObjects(object):
         """ Retrieve an HDF5 attribute value from a buffer. """
         if isinstance(dtype, tuple):
             dtype_class = dtype[0]
-            value = np.empty(count, dtype=np.object)
+            value = np.empty(count, dtype=object)
             for i in range(count):
                 if dtype_class == 'VLEN_STRING':
                     _, _, character_set = dtype
