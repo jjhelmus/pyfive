@@ -2,6 +2,19 @@ from .dataobjects import DataObjects, DATA_STORAGE_MSG_TYPE
 from .datatype_msg import DatatypeMessage
 import numpy as np
 from .btree import BTreeV1RawDataChunks
+from .indexing import OrthogonalIndexer
+
+
+class ZarrSubstitute:
+    """ 
+    This mimics the funcationality of the zarr array produced by kerchunk,
+    but with only what is needed for indexing
+    """
+    def __init__(self, chunk_index, shape, chunks):
+        self.chunk_index = chunk_index
+        self._chunks = chunks
+        self._shape = shape
+
 
 class ADataObjects(DataObjects):
     """ 
@@ -16,7 +29,7 @@ class ADataObjects(DataObjects):
         # not yet sure we need our own copy
         self._as_chunk_index=[]
 
-    def get_offset_addresses(self, args=None):
+    def get_offset_addresses(self):
         """ 
         Get the offset addresses for the data requested
         """
@@ -32,17 +45,18 @@ class ADataObjects(DataObjects):
         elif layout_class == 1:  # contiguous storage
             return NotImplementedError("Contiguous storage")
         if layout_class == 2:  # chunked storage
-            return self._as_get_chunk_addresses(args)
+            return self._as_get_chunk_addresses()
     
 
-    def _as_get_chunk_addresses(self, args):
+    def _as_get_chunk_addresses(self):
         """ 
         Get the offset addresses associated with all the chunks 
         known to the b-tree of this object
         """
-        self._get_chunk_params()
-        
         if self._as_chunk_index == []:
+
+            self._get_chunk_params()
+
             chunk_btree = BTreeV1RawDataChunks(
                 self.fh, self._chunk_address, self._chunk_dims)
 
@@ -59,9 +73,24 @@ class ADataObjects(DataObjects):
                     region = [slice(i, i+j) for i, j in zip(start, self.shape)]
                     self._as_chunk_index.append([region, start, addr, size])
 
-        if args is not None:
-            return NotImplementedError
-        return self._as_chunk_index
+    def __getitem__(self, args):
+
+        if self._as_chunk_index == []:
+            self._as_get_chunk_addresses
+
+        array = ZarrSubstitute(self._as_chunk_index, self.shape, self.chunks)
+
+        indexer = OrthogonalIndexer(args, array)
+        stripped_indexer = [(a, b, c) for a,b,c in indexer]
+        print(stripped_indexer)
+        mycoords = []
+        for chunk_coords, chunk_selection, out_selection in stripped_indexer:
+            coord = '.'.join([str(c) for c in chunk_coords])
+            mycoords.append((chunk_coords,coord))
+        print("This isn't yet doing what you think it is, it's only returning chunk indices for your selection")
+        return mycoords
+
+       
 
 
 
