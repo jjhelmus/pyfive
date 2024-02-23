@@ -65,10 +65,14 @@ elif location == 'local':
     t2 = working(f2, path, printindex=False)
     d = ADataObjects(f2.file._fh, f2._links[path])
     r = d[2:]
-    if len(r) != len(y):
+    if len(r) >= len(y):
         print(f"yeah, well, it's not working (returning {len(r)} items instead of {len(y)})")
+        # as it's stands, r should be a set of indices for chunks containing y, which should have 
+        # length less than or equal to length (y). At the moment it's too long, so that's clearly
+        # broken
         print(r)
         raise ValueError('Busted')
+    raise ValueError('Busted, but in a better way')
 
 
 else:
