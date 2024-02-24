@@ -4,6 +4,7 @@ from pyfive.as_dataobjects import ADataObjects
 import s3fs 
 import h5py
 import time
+import numpy as np
 
 MYFILE = 'da193o_25_day__grid_T_198807-198807.nc'
 #MYFILE = '../tests/chunked.hdf5'
@@ -13,7 +14,8 @@ INPUT_OPTIONS = [
     ('da193o_25_day__grid_T_198807-198807.nc','tos','s3'),
     ('da193a_25_day__198807-198807.nc','m01s06i247_4','s3'),
     ('../tests/chunked.hdf5','dataset1','local'),
-    ('CMIP6-test.nc','tas', 's3')
+    ('CMIP6-test.nc','tas', 's3'),
+    ('CMIP6-test.nc','tas', 'local')
 ]
 
 MYPATH = Path(__file__).parent
@@ -55,7 +57,6 @@ if location == 's3':
 
 elif location == 'local':
 
-   
     f2 = pyfive.File(MYPATH/MYFILE)
     x = f2[path]
     y = x[2,:]
@@ -64,15 +65,9 @@ elif location == 'local':
     t1 = time.time()
     t2 = working(f2, path, printindex=False)
     d = ADataObjects(f2.file._fh, f2._links[path])
-    r = d[2:]
-    if len(r) >= len(y):
-        print(f"yeah, well, it's not working (returning {len(r)} items instead of {len(y)})")
-        # as it's stands, r should be a set of indices for chunks containing y, which should have 
-        # length less than or equal to length (y). At the moment it's too long, so that's clearly
-        # broken
-        print(r)
-        raise ValueError('Busted')
-    raise ValueError('Busted, but in a better way')
+    r = d[2,:]
+    assert np.array_equal(r,y),f'original {y} does not equal {r} (minimal chunk read)'
+    print(r)
 
 
 else:
