@@ -5,15 +5,14 @@ from .btree import BTreeV1RawDataChunks
 from .indexing import OrthogonalIndexer
 
 
-class ZarrSubstitute:
+class ZarrArrayStub:
     """ 
     This mimics the funcationality of the zarr array produced by kerchunk,
     but with only what is needed for indexing
     """
-    def __init__(self, chunk_index, shape, chunks):
-        self.chunk_index = chunk_index
-        self._chunks = chunks
-        self._shape = shape
+    def __init__(self, shape, chunks):
+        self._chunks = list(chunks)
+        self._shape = list(shape)
 
 
 class ADataObjects(DataObjects):
@@ -26,8 +25,11 @@ class ADataObjects(DataObjects):
         """
         super().__init__(*args,**kwargs)
 
-        # not yet sure we need our own copy
-        self._as_chunk_index=[]
+        #  Need our own copy for now to utilise the zarr indexer.
+        #  An optimisation could be to modify what is returned from OrthogonalIndexer
+        self._zchunk_index={}
+
+        self.order='C'
 
     def get_offset_addresses(self):
         """ 
@@ -53,7 +55,7 @@ class ADataObjects(DataObjects):
         Get the offset addresses associated with all the chunks 
         known to the b-tree of this object
         """
-        if self._as_chunk_index == []:
+        if self._zchunk_index == {}:
 
             self._get_chunk_params()
 
@@ -63,6 +65,12 @@ class ADataObjects(DataObjects):
             count = np.prod(self.shape)
             itemsize = np.dtype(self.dtype).itemsize
             chunk_buffer_size = count * itemsize
+
+            # The zarr orthogonal indexer returns the position in chunk
+            # space, whereas pyfive wants the position in array space.
+            # Here we index the pyfive chunk_index in zarr index space.
+        
+            ichunks = [1/c for c in self.chunks]
             
             for node in chunk_btree.all_nodes[0]:
                 for node_key, addr in zip(node['keys'], node['addresses']):
@@ -70,27 +78,42 @@ class ADataObjects(DataObjects):
                     if self.filter_pipeline:
                         size = node_key['chunk_size']
                     start = node_key['chunk_offset'][:-1]
-                    region = [slice(i, i+j) for i, j in zip(start, self.shape)]
-                    self._as_chunk_index.append([region, start, addr, size])
+                    key = tuple([int(i*d) for i,d in zip(list(start),ichunks)])
+                    self._zchunk_index[key] = (addr,size)
 
     def __getitem__(self, args):
 
-        if self._as_chunk_index == []:
-            self._as_get_chunk_addresses
+        if self._zchunk_index == {}:
+            self._as_get_chunk_addresses()
+            print("Loaded addresses for ", len(self._zchunk_index),' chunks')
 
-        array = ZarrSubstitute(self._as_chunk_index, self.shape, self.chunks)
+        array = ZarrArrayStub(self.shape, self.chunks)
 
         indexer = OrthogonalIndexer(args, array)
         stripped_indexer = [(a, b, c) for a,b,c in indexer]
-        print(stripped_indexer)
-        mycoords = []
-        for chunk_coords, chunk_selection, out_selection in stripped_indexer:
-            coord = '.'.join([str(c) for c in chunk_coords])
-            mycoords.append((chunk_coords,coord))
-        print("This isn't yet doing what you think it is, it's only returning chunk indices for your selection")
-        return mycoords
 
-       
+        filter_pipeline=None #FIXME, needs to be an argument or grabbed from somewhere
+        count = np.prod(self.chunks)
+        itemsize = np.dtype(self.dtype).itemsize
+        default_chunk_buffer_size = itemsize*count
+    
+        out_shape = indexer.shape
+        out = np.empty(out_shape, dtype=self.dtype, order=self.order)
+
+        for chunk_coords, chunk_selection, out_selection in stripped_indexer:
+            addr, chunk_buffer_size = self._zchunk_index[chunk_coords] 
+            self.fh.seek(addr)
+            if filter_pipeline is None:
+                chunk_buffer = self.fh.read(default_chunk_buffer_size)
+            else:
+                raise NotImplementedError
+                # The plan here would be to take the _filter_chunk method from BTree1RawDataChunks
+                # pop it out on it's own and make it a class method here as well as wherever else it needs to be
+            chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
+            out[out_selection] = chunk_data.reshape(self.chunks, order=self.order)[chunk_selection]
+
+        return out
+        
 
 
 
