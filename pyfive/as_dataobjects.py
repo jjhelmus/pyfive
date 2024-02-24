@@ -59,7 +59,7 @@ class ADataObjects(DataObjects):
 
             self._get_chunk_params()
 
-            chunk_btree = BTreeV1RawDataChunks(
+            self.chunk_btree = BTreeV1RawDataChunks(
                 self.fh, self._chunk_address, self._chunk_dims)
 
             count = np.prod(self.shape)
@@ -72,43 +72,35 @@ class ADataObjects(DataObjects):
         
             ichunks = [1/c for c in self.chunks]
             
-            for node in chunk_btree.all_nodes[0]:
+            for node in self.chunk_btree.all_nodes[0]:
                 for node_key, addr in zip(node['keys'], node['addresses']):
-                    size = chunk_buffer_size
-                    if self.filter_pipeline:
-                        size = node_key['chunk_size']
+                    size = node_key['chunk_size']
+                    if self._filter_pipeline:
+                        filter_mask = node_key['filter_mask']
+                    else:
+                        filter_mask=None
                     start = node_key['chunk_offset'][:-1]
                     key = tuple([int(i*d) for i,d in zip(list(start),ichunks)])
-                    self._zchunk_index[key] = (addr,size)
+                    self._zchunk_index[key] = (addr,size,filter_mask)
 
     def __getitem__(self, args):
 
         if self._zchunk_index == {}:
             self._as_get_chunk_addresses()
-            print("Loaded addresses for ", len(self._zchunk_index),' chunks')
 
         array = ZarrArrayStub(self.shape, self.chunks)
 
         indexer = OrthogonalIndexer(args, array)
         stripped_indexer = [(a, b, c) for a,b,c in indexer]
 
-        filter_pipeline=None #FIXME, needs to be an argument or grabbed from somewhere
-        count = np.prod(self.chunks)
-        itemsize = np.dtype(self.dtype).itemsize
-        default_chunk_buffer_size = itemsize*count
-    
+        itemsize = np.dtype(self.dtype).itemsize    
         out_shape = indexer.shape
         out = np.empty(out_shape, dtype=self.dtype, order=self.order)
 
         for chunk_coords, chunk_selection, out_selection in stripped_indexer:
-            addr, chunk_buffer_size = self._zchunk_index[chunk_coords] 
-            self.fh.seek(addr)
-            if filter_pipeline is None:
-                chunk_buffer = self.fh.read(default_chunk_buffer_size)
-            else:
-                raise NotImplementedError
-                # The plan here would be to take the _filter_chunk method from BTree1RawDataChunks
-                # pop it out on it's own and make it a class method here as well as wherever else it needs to be
+            addr, chunk_buffer_size, filter_mask = self._zchunk_index[chunk_coords] 
+            chunk_buffer = self.chunk_btree.get_one_chunk_buffer(
+                addr, chunk_buffer_size, itemsize,self._filter_pipeline, filter_mask)
             chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
             out[out_selection] = chunk_data.reshape(self.chunks, order=self.order)[chunk_selection]
 

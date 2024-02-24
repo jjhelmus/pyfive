@@ -199,6 +199,20 @@ class BTreeV1RawDataChunks(BTreeV1):
 
         non_padded_region = tuple([slice(i) for i in data_shape])
         return data[non_padded_region]
+    
+    def get_one_chunk_buffer(self, addr, size, itemsize, filter_pipeline, filter_mask): 
+        """ 
+        Used when getting data chunk by chunk for reading partial data arrays
+        All the shaping and positioning is done in the calling function.
+        """
+        self.fh.seek(addr)
+        chunk_buffer = self.fh.read(size)
+        if filter_pipeline is not None:
+            chunk_buffer = self.fh.read(size)
+            filter_mask = filter_mask
+            chunk_buffer = self._filter_chunk(
+                chunk_buffer, filter_mask, filter_pipeline, itemsize)
+        return chunk_buffer
 
     @classmethod
     def _filter_chunk(cls, chunk_buffer, filter_mask, filter_pipeline, itemsize):
