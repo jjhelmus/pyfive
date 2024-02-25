@@ -8,7 +8,7 @@ from .indexing import OrthogonalIndexer
 class ZarrArrayStub:
     """ 
     This mimics the funcationality of the zarr array produced by kerchunk,
-    but with only what is needed for indexing
+    but with only what is needed for indexing.
     """
     def __init__(self, shape, chunks):
         self._chunks = list(chunks)
@@ -17,7 +17,7 @@ class ZarrArrayStub:
 
 class ADataObjects(DataObjects):
     """ 
-    Subclass of DataObjets which access the chunk addresses for a given slice of data
+    Subclass of DataObjets which accesses the chunk addresses for a given slice of data
     """
     def __init__(self,*args,**kwargs):
         """
@@ -26,9 +26,7 @@ class ADataObjects(DataObjects):
         super().__init__(*args,**kwargs)
 
         #  Need our own copy for now to utilise the zarr indexer.
-        #  An optimisation could be to modify what is returned from OrthogonalIndexer
         self._zchunk_index={}
-
         self.order='C'
 
     def get_offset_addresses(self):
@@ -47,13 +45,15 @@ class ADataObjects(DataObjects):
         elif layout_class == 1:  # contiguous storage
             return NotImplementedError("Contiguous storage")
         if layout_class == 2:  # chunked storage
-            return self._as_get_chunk_addresses()
-    
+            self._as_get_chunk_addresses()
+            return self._zchunk_index
+
 
     def _as_get_chunk_addresses(self):
         """ 
         Get the offset addresses associated with all the chunks 
-        known to the b-tree of this object
+        known to the b-tree of this object, and load them into
+        an index suitable for use with the zarr indexer.
         """
         if self._zchunk_index == {}:
 
@@ -64,7 +64,6 @@ class ADataObjects(DataObjects):
 
             count = np.prod(self.shape)
             itemsize = np.dtype(self.dtype).itemsize
-            chunk_buffer_size = count * itemsize
 
             # The zarr orthogonal indexer returns the position in chunk
             # space, whereas pyfive wants the position in array space.
@@ -76,6 +75,7 @@ class ADataObjects(DataObjects):
                 for node_key, addr in zip(node['keys'], node['addresses']):
                     size = node_key['chunk_size']
                     if self._filter_pipeline:
+                        # I am not sure this varies per chunk, but in case it does
                         filter_mask = node_key['filter_mask']
                     else:
                         filter_mask=None
@@ -84,6 +84,10 @@ class ADataObjects(DataObjects):
                     self._zchunk_index[key] = (addr,size,filter_mask)
 
     def __getitem__(self, args):
+        """
+        Use the zarr orthongal indexer to extract data for a specfic selection within
+        the dataset array and in doing so, only load the relevant chunks.
+        """
 
         if self._zchunk_index == {}:
             self._as_get_chunk_addresses()
@@ -91,16 +95,17 @@ class ADataObjects(DataObjects):
         array = ZarrArrayStub(self.shape, self.chunks)
 
         indexer = OrthogonalIndexer(args, array)
-        stripped_indexer = [(a, b, c) for a,b,c in indexer]
+        # FIXME: Need to understand what drop_axes was up to and whether or not
+        # it is relevant to this or not (I didn't understand it in the zarr implementation).
 
         itemsize = np.dtype(self.dtype).itemsize    
         out_shape = indexer.shape
         out = np.empty(out_shape, dtype=self.dtype, order=self.order)
 
-        for chunk_coords, chunk_selection, out_selection in stripped_indexer:
+        for chunk_coords, chunk_selection, out_selection in indexer:
             addr, chunk_buffer_size, filter_mask = self._zchunk_index[chunk_coords] 
             chunk_buffer = self.chunk_btree.get_one_chunk_buffer(
-                addr, chunk_buffer_size, itemsize,self._filter_pipeline, filter_mask)
+                addr, chunk_buffer_size, itemsize, self._filter_pipeline, filter_mask)
             chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
             out[out_selection] = chunk_data.reshape(self.chunks, order=self.order)[chunk_selection]
 
