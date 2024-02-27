@@ -19,6 +19,9 @@ from .btree import BTreeV2GroupNames, BTreeV2GroupOrders
 from .btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
 from .misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap
 
+# these constants happen to have the same value...
+UNLIMITED_SIZE = UNDEFINED_ADDRESS
+
 
 class DataObjects(object):
     """
@@ -180,7 +183,7 @@ class DataObjects(object):
         offset += _padded_size(attr_dict['datatype_size'], padding_multiple)
 
         # read in the dataspace information
-        shape = determine_data_shape(self.msg_data, offset)
+        shape, maxshape = determine_data_shape(self.msg_data, offset)
         items = int(np.product(shape))
         offset += _padded_size(attr_dict['dataspace_size'], padding_multiple)
 
@@ -656,8 +659,6 @@ class DataObjects(object):
     def is_dataset(self):
         """ True when DataObjects points to a dataset, False for a group. """
         return len(self.find_msg_type(DATASPACE_MSG_TYPE)) > 0
-
-UNLIMITED_SIZE = struct.unpack('<Q', b'\xff\xff\xff\xff\xff\xff\xff\xff')[0]
 
 
 def determine_data_shape(buf, offset):
