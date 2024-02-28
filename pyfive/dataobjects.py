@@ -19,6 +19,9 @@ from .btree import BTreeV2GroupNames, BTreeV2GroupOrders
 from .btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
 from .misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap
 
+# these constants happen to have the same value...
+UNLIMITED_SIZE = UNDEFINED_ADDRESS
+
 
 class DataObjects(object):
     """
@@ -180,7 +183,7 @@ class DataObjects(object):
         offset += _padded_size(attr_dict['datatype_size'], padding_multiple)
 
         # read in the dataspace information
-        shape = determine_data_shape(self.msg_data, offset)
+        shape, maxshape = determine_data_shape(self.msg_data, offset)
         items = int(np.product(shape))
         offset += _padded_size(attr_dict['dataspace_size'], padding_multiple)
 
@@ -246,7 +249,16 @@ class DataObjects(object):
         """ Shape of the dataset. """
         msg = self.find_msg_type(DATASPACE_MSG_TYPE)[0]
         msg_offset = msg['offset_to_message']
-        return determine_data_shape(self.msg_data, msg_offset)
+        shape, maxshape = determine_data_shape(self.msg_data, msg_offset)
+        return shape
+
+    @property
+    def maxshape(self):
+        """ Maximum Shape of the dataset. (None for unlimited dimension) """
+        msg = self.find_msg_type(DATASPACE_MSG_TYPE)[0]
+        msg_offset = msg['offset_to_message']
+        shape, maxshape = determine_data_shape(self.msg_data, msg_offset)
+        return maxshape
 
     @property
     def fillvalue(self):
@@ -665,9 +677,15 @@ def determine_data_shape(buf, offset):
 
     ndims = header['dimensionality']
     dim_sizes = struct.unpack_from('<' + 'Q' * ndims, buf, offset)
+    offset += 8 * ndims
     # Dimension maximum size follows if header['flags'] bit 0 set
+    if header['flags'] & 2**0:
+        maxshape = struct.unpack_from('<' + 'Q' * ndims, buf, offset)
+        maxshape = tuple((None if d == UNLIMITED_SIZE else d) for d in maxshape)
+    else:
+        maxshape = dim_sizes
     # Permutation index follows if header['flags'] bit 1 set
-    return dim_sizes
+    return dim_sizes, maxshape
 
 
 # HDF5 Structures
