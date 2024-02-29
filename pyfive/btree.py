@@ -208,8 +208,8 @@ class BTreeV1RawDataChunks(BTreeV1):
         self.fh.seek(addr)
         chunk_buffer = self.fh.read(size)
         if filter_pipeline is not None:
-            chunk_buffer = self.fh.read(size)
-            filter_mask = filter_mask
+            #chunk_buffer = self.fh.read(size)
+            #filter_mask = filter_mask
             chunk_buffer = self._filter_chunk(
                 chunk_buffer, filter_mask, filter_pipeline, itemsize)
         return chunk_buffer

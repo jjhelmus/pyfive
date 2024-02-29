@@ -30,7 +30,7 @@ def working(f2, path, printindex=True):
     link_target = f2._links[path]
     t1 = time.time()
     dsref = ADataObjects(f2.file._fh, link_target)
-    chunk_index = dsref.get_offset_addresses()
+    chunk_index = dsref._get_chunk_addresses()
     t2 = time.time()
     print(f'Chunk index timer  {t2-t1:.2}s')
     if printindex:
@@ -66,10 +66,9 @@ elif location == 'local':
     t2 = working(f2, path, printindex=False)
     d = ADataObjects(f2.file._fh, f2._links[path])
     r = d[2,:]
+    print(r)
     assert np.array_equal(r,y),f'original {y} does not equal {r} (minimal chunk read)'
     print(r)
-
-
 else:
     raise ValueError('You stuffed up')
 

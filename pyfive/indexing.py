@@ -10,6 +10,17 @@ import numbers
 
 import numpy as np
 
+
+class ZarrArrayStub:
+    """ 
+    This mimics the functionality of the zarr array produced by kerchunk,
+    but with only what is needed for indexing. This is the only "new" code
+    on top of the original Zarr source.
+    """
+    def __init__(self, shape, chunks):
+        self._chunks = list(chunks)
+        self._shape = list(shape)
+
 # in the original zarr source the following error definitions are an import from zarr.errors
 
 class _BaseZarrIndexError(IndexError):

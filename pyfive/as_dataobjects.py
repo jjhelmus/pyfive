@@ -2,18 +2,7 @@ from .dataobjects import DataObjects, DATA_STORAGE_MSG_TYPE
 from .datatype_msg import DatatypeMessage
 import numpy as np
 from .btree import BTreeV1RawDataChunks
-from .indexing import OrthogonalIndexer
-
-
-class ZarrArrayStub:
-    """ 
-    This mimics the funcationality of the zarr array produced by kerchunk,
-    but with only what is needed for indexing.
-    """
-    def __init__(self, shape, chunks):
-        self._chunks = list(chunks)
-        self._shape = list(shape)
-
+from .indexing import OrthogonalIndexer, ZarrArrayStub
 
 class ADataObjects(DataObjects):
     """ 
@@ -29,7 +18,7 @@ class ADataObjects(DataObjects):
         self._zchunk_index={}
         self.order='C'
 
-    def get_offset_addresses(self):
+    def _get_offset_addresses(self):
         """ 
         Get the offset addresses for the data requested
         """
@@ -46,10 +35,18 @@ class ADataObjects(DataObjects):
             return NotImplementedError("Contiguous storage")
         if layout_class == 2:  # chunked storage
             self._as_get_chunk_addresses()
-            return self._zchunk_index
+        
+    def get_chunk_details(self, chunk_coords):
+        """ 
+        Returns the chunk details associated with chunk coords
+        returned by the Zarr orthogonal indexer 
+        """
+        if self._zchunk_index == {}:
+            self._get_chunk_addresses()
 
+        return self._zchunk_index[chunk_coords]
 
-    def _as_get_chunk_addresses(self):
+    def _get_chunk_addresses(self):
         """ 
         Get the offset addresses associated with all the chunks 
         known to the b-tree of this object, and load them into
@@ -85,12 +82,9 @@ class ADataObjects(DataObjects):
 
     def __getitem__(self, args):
         """
-        Use the zarr orthongal indexer to extract data for a specfic selection within
+        Use the zarr orthogonal indexer to extract data for a specfic selection within
         the dataset array and in doing so, only load the relevant chunks.
         """
-
-        if self._zchunk_index == {}:
-            self._as_get_chunk_addresses()
 
         array = ZarrArrayStub(self.shape, self.chunks)
 
@@ -103,7 +97,7 @@ class ADataObjects(DataObjects):
         out = np.empty(out_shape, dtype=self.dtype, order=self.order)
 
         for chunk_coords, chunk_selection, out_selection in indexer:
-            addr, chunk_buffer_size, filter_mask = self._zchunk_index[chunk_coords] 
+            addr, chunk_buffer_size, filter_mask = self.get_chunk_details(chunk_coords) 
             chunk_buffer = self.chunk_btree.get_one_chunk_buffer(
                 addr, chunk_buffer_size, itemsize, self._filter_pipeline, filter_mask)
             chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
