@@ -629,8 +629,12 @@ class DatasetDataObject(DataObjects):
             else:
                 return self._get_contiguous_data(self.property_offset)[args]
         if self.layout_class == 2:  # chunked storage
+            # If reading all chunks, use the (hopefully faster) "do it one go" method.
+            # If the dtype is a tuple, we don't really know how to deal with it chunk by chunk in this version
             if args is None:
                 return self._get_chunked_data(self.msg_offset)
+            elif isinstance(self.dtype, tuple):
+                return self._get_chunked_data(self.msg_offset)[args]
             else:
                 return self._get_selection_via_chunks(args)
 
