@@ -276,7 +276,7 @@ class Dataset(object):
         return '<HDF5 dataset "%s": shape %s, type "%s">' % info
 
     def __getitem__(self, args):
-        data = self._dataobjects.get_data()[args]
+        data = self._dataobjects.get_data(args)
         if self._astype is None:
             return data
         return data.astype(self._astype)

@@ -741,7 +741,7 @@ class DatasetDataObject(DataObjects):
             for node in self.chunk_btree.all_nodes[0]:
                 for node_key, addr in zip(node['keys'], node['addresses']):
                     size = node_key['chunk_size']
-                    if self._filter_pipeline:
+                    if self.filter_pipeline:
                         # I am not sure this varies per chunk, but in case it does
                         filter_mask = node_key['filter_mask']
                     else:
@@ -768,7 +768,7 @@ class DatasetDataObject(DataObjects):
         for chunk_coords, chunk_selection, out_selection in indexer:
             addr, chunk_buffer_size, filter_mask = self.get_chunk_details(chunk_coords) 
             chunk_buffer = self.chunk_btree.get_one_chunk_buffer(
-                addr, chunk_buffer_size, itemsize, self._filter_pipeline, filter_mask)
+                addr, chunk_buffer_size, itemsize, self.filter_pipeline, filter_mask)
             chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
             out[out_selection] = chunk_data.reshape(self.chunks, order=self.order)[chunk_selection]
 
