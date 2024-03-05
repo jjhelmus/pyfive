@@ -8,7 +8,7 @@ import posixpath
 import numpy as np
 
 from .core import Reference
-from .dataobjects import DataObjects
+from .dataobjects import DataObjects, DatasetDataObject
 from .misc_low_level import SuperBlock
 
 
@@ -89,7 +89,7 @@ class Group(Mapping):
         if dataobjs.is_dataset:
             if additional_obj != '.':
                 raise KeyError('%s is a dataset, not a group' % (obj_name))
-            return Dataset(obj_name, dataobjs, self)
+            return Dataset(obj_name, DatasetDataObject(self.file._fh, link_target), self)
         return Group(obj_name, dataobjs, self)[additional_obj]
 
     def __iter__(self):
@@ -276,7 +276,7 @@ class Dataset(object):
         return '<HDF5 dataset "%s": shape %s, type "%s">' % info
 
     def __getitem__(self, args):
-        data = self._dataobjects.get_data()[args]
+        data = self._dataobjects.get_data(args)
         if self._astype is None:
             return data
         return data.astype(self._astype)
@@ -323,6 +323,7 @@ class Dataset(object):
     @property
     def dtype(self):
         """ dtype attribute. """
+        # In the HDF5 implementation this is a numpy dtype
         return self._dataobjects.dtype
 
     @property
