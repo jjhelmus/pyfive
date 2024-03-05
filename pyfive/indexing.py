@@ -18,8 +18,11 @@ class ZarrArrayStub:
     on top of the original Zarr source.
     """
     def __init__(self, shape, chunks):
-        self._chunks = list(chunks)
-        self._shape = list(shape)
+        if chunks is None:
+            self._chunks = shape
+        else:
+            self._chunks = chunks
+        self._shape = shape
 
 # in the original zarr source the following error definitions are an import from zarr.errors
 

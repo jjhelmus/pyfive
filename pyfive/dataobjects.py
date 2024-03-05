@@ -694,12 +694,25 @@ class DatasetDataObject(DataObjects):
     def get_chunk_details(self, chunk_coords):
         """ 
         Returns the chunk details associated with chunk coords
-        returned by the Zarr orthogonal indexer 
+        returned by the Zarr orthogonal indexer. The special case
+        is that if the data is contiguous, we still want to return
+        the offset and size, as the point of this entry point is
+        to provide third party applications an address to the data.
         """
-        if self._zchunk_index == {}:
-            self._get_chunk_addresses()
+        if self.layout_class == 0:  # compact storage
+            raise NotImplementedError("Compact storage")
+        elif self.layout_class == 1:  # contiguous storage
+            # This option never used by pyfive itself as we use the memory map for
+            # access to contiguous data, but third parties may need it.
+            # Ignore coordinates, just give the location and size of entire array
+            data_offset, = struct.unpack_from('<Q', self.msg_data, self.property_offset)
+            # No way there can be filtering of an unchunked dataset, so no filter mask?
+            return data_offset, np.prod(self.shape)*np.dtype(self.dtype).itemsize, None
+        else:
+            if self._zchunk_index == {}:
+                self._get_chunk_addresses()
 
-        return self._zchunk_index[chunk_coords]
+            return self._zchunk_index[chunk_coords]
 
     def _get_chunk_addresses(self):
         """ 
