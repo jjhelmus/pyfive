@@ -323,6 +323,7 @@ class Dataset(object):
     @property
     def dtype(self):
         """ dtype attribute. """
+        # In the HDF5 implementation this is a numpy dtype
         return self._dataobjects.dtype
 
     @property

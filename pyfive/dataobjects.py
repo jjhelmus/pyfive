@@ -690,25 +690,6 @@ class DatasetDataObject(DataObjects):
             self.fh, self._chunk_address, self._chunk_dims)
         return chunk_btree.construct_data_from_chunks(
             self.chunks, self.shape, self.dtype, self.filter_pipeline)
-
-
-    def _get_offset_addresses(self):
-        """ 
-        Get the offset addresses for the data requested
-        """
-
-        # offset and size from data storage message
-        msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
-        msg_offset = msg['offset_to_message']
-        version, dims, layout_class, property_offset = (
-            self._get_data_message_properties(msg_offset))
-
-        if layout_class == 0:  # compact storage
-            raise NotImplementedError("Compact storage")
-        elif layout_class == 1:  # contiguous storage
-            return NotImplementedError("Contiguous storage")
-        if layout_class == 2:  # chunked storage
-            self._as_get_chunk_addresses()
         
     def get_chunk_details(self, chunk_coords):
         """ 
