@@ -617,10 +617,10 @@ class DatasetDataObject(DataObjects):
         # pseudo chunk blocksize: this is a size below which we don't bother 
         # pseudo chunking for contiguous data and just load the lot at data
         # access time: units are kibibytes
-        self.pseudo_chunking = False
+        self.pseudo_chunking = True
         self.pseudo_block_size_kib = 0
         # We can't use mmaps on S3
-        self.avoid_mmap = False
+        self.avoid_mmap = True
         ##########################################################################
 
         # offset and size from data storage message
@@ -637,8 +637,6 @@ class DatasetDataObject(DataObjects):
         if self.layout_class == 0:  # compact storage
             raise NotImplementedError("Compact storage")
         elif self.layout_class == 1:  # contiguous storage
-            if self.avoid_mmap:
-                return self._get_selection_from_contiguous(args)
             return self._get_contiguous_data(self.property_offset,args)
         if self.layout_class == 2:  # chunked storage
             # If reading all chunks, use the (hopefully faster) "do it one go" method.
@@ -676,15 +674,18 @@ class DatasetDataObject(DataObjects):
 
         if data_offset == UNDEFINED_ADDRESS:
             # no storage is backing array, return all zeros
-            result = np.zeros(self.shape, dtype=self.dtype)
+            return np.zeros(self.shape, dtype=self.dtype)[args]
 
         if not isinstance(self.dtype, tuple):
-            try:
-                # return a memory-map to the stored array with copy-on-write
-                result = np.memmap(self.fh, dtype=self.dtype, mode='c',
-                            offset=data_offset, shape=self.shape, order=self.order)
-            except UnsupportedOperation:
+            if self.avoid_mmap:
                 return self._get_selection_from_contiguous(args)
+            else:
+                try:
+                    # return a memory-map to the stored array with copy-on-write
+                    return np.memmap(self.fh, dtype=self.dtype, mode='c',
+                                offset=data_offset, shape=self.shape, order=self.order)[args]
+                except UnsupportedOperation:
+                    return self._get_selection_from_contiguous(args)
         else:
             dtype_class = self.dtype[0]
             if dtype_class == 'REFERENCE':
@@ -694,13 +695,9 @@ class DatasetDataObject(DataObjects):
                 ref_addresses = np.memmap(
                     self.fh, dtype=('<u8'), mode='c', offset=data_offset,
                     shape=self.shape, order=self.order)
-                return np.array([Reference(addr) for addr in ref_addresses])
+                return np.array([Reference(addr) for addr in ref_addresses])[args]
             else:
                 raise NotImplementedError('datatype not implemented')
-        if args is None:
-            return result
-        else:
-            return result[args]
 
     def _get_chunked_data(self, offset):
         """ Return data which is chunked. """
