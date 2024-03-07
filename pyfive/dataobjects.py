@@ -5,6 +5,7 @@ from __future__ import division
 from collections import OrderedDict
 import struct
 import warnings
+from io import UnsupportedOperation
 
 import numpy as np
 
@@ -610,6 +611,18 @@ class DatasetDataObject(DataObjects):
         self._zchunk_index={}
         self.order='C'
 
+        ##########################################################################
+        # pseudo chunking control. 
+        #these can be changed from outside for testing purposes
+        # pseudo chunk blocksize: this is a size below which we don't bother 
+        # pseudo chunking for contiguous data and just load the lot at data
+        # access time: units are kibibytes
+        self.pseudo_chunking = False
+        self.pseudo_block_size_kib = 0
+        # We can't use mmaps on S3
+        self.avoid_mmap = False
+        ##########################################################################
+
         # offset and size from data storage message
         msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
         self.msg_offset = msg['offset_to_message']
@@ -624,10 +637,9 @@ class DatasetDataObject(DataObjects):
         if self.layout_class == 0:  # compact storage
             raise NotImplementedError("Compact storage")
         elif self.layout_class == 1:  # contiguous storage
-            if args is None:
-                return self._get_contiguous_data(self.property_offset)
-            else:
-                return self._get_contiguous_data(self.property_offset)[args]
+            if self.avoid_mmap:
+                return self._get_selection_from_contiguous(args)
+            return self._get_contiguous_data(self.property_offset,args)
         if self.layout_class == 2:  # chunked storage
             # If reading all chunks, use the (hopefully faster) "do it one go" method.
             # If the dtype is a tuple, we don't really know how to deal with it chunk by chunk in this version
@@ -659,17 +671,20 @@ class DatasetDataObject(DataObjects):
         assert (version >= 1) and (version <= 4)
         return version, dims, layout_class, property_offset
 
-    def _get_contiguous_data(self, property_offset):
+    def _get_contiguous_data(self, property_offset, args):
         data_offset, = struct.unpack_from('<Q', self.msg_data, property_offset)
 
         if data_offset == UNDEFINED_ADDRESS:
             # no storage is backing array, return all zeros
-            return np.zeros(self.shape, dtype=self.dtype)
+            result = np.zeros(self.shape, dtype=self.dtype)
 
         if not isinstance(self.dtype, tuple):
-            # return a memory-map to the stored array with copy-on-write
-            return np.memmap(self.fh, dtype=self.dtype, mode='c',
-                             offset=data_offset, shape=self.shape, order=self.order)
+            try:
+                # return a memory-map to the stored array with copy-on-write
+                result = np.memmap(self.fh, dtype=self.dtype, mode='c',
+                            offset=data_offset, shape=self.shape, order=self.order)
+            except UnsupportedOperation:
+                return self._get_selection_from_contiguous(args)
         else:
             dtype_class = self.dtype[0]
             if dtype_class == 'REFERENCE':
@@ -682,6 +697,10 @@ class DatasetDataObject(DataObjects):
                 return np.array([Reference(addr) for addr in ref_addresses])
             else:
                 raise NotImplementedError('datatype not implemented')
+        if args is None:
+            return result
+        else:
+            return result[args]
 
     def _get_chunked_data(self, offset):
         """ Return data which is chunked. """
@@ -771,6 +790,74 @@ class DatasetDataObject(DataObjects):
             out[out_selection] = chunk_data.reshape(self.chunks, order=self.order)[chunk_selection]
 
         return out
+    
+
+    def _get_selection_from_contiguous(self, args=None):
+        """
+        Two options, we either read the entire contiguous array, and pull out
+        the selection (args) from that, or we try and read the contiguous
+        array in pseudo chunks (being the contiguous data which varies on
+        the slowest axis). We only do the latter if a) we have the
+        pseudo_chunking turned on (see init method), b) the array is 
+        multi dimensional, and c) the slabs are big enough to bother
+        (i.e bigger than pseudo_block_size_kib). We use the fact that the
+        storage order is known (HDF writes in the C-order, last axis
+        varying fastest).
+        """
+
+        # don't want to be dong this if we are actually chunked!
+        assert self.chunks is None
+        
+        data_offset, = struct.unpack_from('<Q', self.msg_data, self.property_offset)
+        itemsize = np.dtype(self.dtype).itemsize
+        
+        #are we 1d, too small to worry about pseudo chunks, or is pseudo chunking turned off?
+        #if so, read the lot as one chunk, otherwise use collapse all but last dimension into chunks
+      
+        if len(self.shape) == 1:
+            self.pseudo_chunking = False
+
+        if self.pseudo_chunking:
+            stride = np.prod(self.shape[1:])*itemsize
+            if stride < self.pseudo_block_size_kib*1024:
+                self.pseudo_chunking = False
+        
+        if self.pseudo_chunking:
+            pseudo_chunks = np.copy(self.shape)
+            pseudo_chunks[0] = 1
+        else:
+            stride = np.prod(self.shape)*itemsize
+            pseudo_chunks=self.shape
+ 
+        if args is None:
+
+            # we need it all, let's get it all
+            self.fh.seek(data_offset)
+            chunk_buffer = self.fh.read(stride)
+            chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
+            chunk_data.reshape(self.shape, order=self.order)
+            return chunk_data
+        
+        else:
+
+            # we are hoping that with the pseudo chunking we can avoid some reads
+            # this will be the case if the selection is "along the grain",
+            # otherwise this could be slower.
+
+            array = ZarrArrayStub(self.shape, pseudo_chunks)
+            indexer = OrthogonalIndexer(args, array)
+            out_shape = indexer.shape
+            out = np.empty(out_shape, dtype=self.dtype, order=self.order)
+
+            for chunk_coords, chunk_selection, out_selection in indexer:
+                index = data_offset+chunk_coords[0]*stride
+                self.fh.seek(index)
+                chunk_buffer = self.fh.read(stride)
+                chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
+                out[out_selection] = chunk_data.reshape(pseudo_chunks, order=self.order)[chunk_selection]
+            return out
+        
+
         
 
 def determine_data_shape(buf, offset):
