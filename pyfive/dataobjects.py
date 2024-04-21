@@ -19,7 +19,8 @@ from .btree import BTreeV1Groups, BTreeV1RawDataChunks
 from .btree import BTreeV2GroupNames, BTreeV2GroupOrders
 from .btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
 from .misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap
-from .indexing import OrthogonalIndexer, ZarrArrayStub
+from .h5d import H5Dataset
+
 
 # these constants happen to have the same value...
 UNLIMITED_SIZE = UNDEFINED_ADDRESS
@@ -598,27 +599,27 @@ class DataObjects(object):
 
 class DatasetDataObject(DataObjects):
     """ 
-    Subclass of DataObjects associated with one Dataset, and 
-    which handles actual data access.
+    Subclass of DataObjects associated with one Dataset, 
+    handles actual data access.
     """
     def __init__(self,*args,**kwargs):
         """
         Initialise via super class
         """
         super().__init__(*args,**kwargs)
+        self._id = None
 
-        #  Need our own copy for now to utilise the zarr indexer.
-        self._zchunk_index={}
+        # make this explicit, but controllable
         self.order='C'
 
         ##########################################################################
         # pseudo chunking control. 
-        #these can be changed from outside for testing purposes
+        # these can be changed from outside for optimisation
         # pseudo chunk blocksize: this is a size below which we don't bother 
         # pseudo chunking for contiguous data and just load the lot at data
         # access time: units are kibibytes
         self.pseudo_chunking = True
-        self.pseudo_block_size_kib = 0
+        self.pseudo_block_size_kib = 1024
         # We can't use mmaps on S3
         self.avoid_mmap = True
         ##########################################################################
@@ -629,6 +630,16 @@ class DatasetDataObject(DataObjects):
         version, dims, self.layout_class, self.property_offset = (
             self._get_data_message_properties(self.msg_offset))
         
+    @property
+    def id(self):
+        """ 
+        Represents a PyFive approximation of an HDF5 dataset identifier.
+        Objects of this class provides methods for working directly with chunked data.
+        """
+        if self._id is None:
+            self._id = H5Dataset(self)
+        return self._id
+
     def get_data(self, args=None):
         """ 
         Return the data pointed to in the DataObject.
@@ -646,7 +657,7 @@ class DatasetDataObject(DataObjects):
             elif isinstance(self.dtype, tuple):
                 return self._get_chunked_data(self.msg_offset)[args]
             else:
-                return self._get_selection_via_chunks(args)
+                return self.id._get_selection_via_chunks(args)
 
     def _get_data_message_properties(self, msg_offset):
         """ Return the message properties of the DataObject. """
@@ -699,95 +710,21 @@ class DatasetDataObject(DataObjects):
             else:
                 raise NotImplementedError('datatype not implemented')
 
-    def _get_chunked_data(self, offset):
-        """ Return data which is chunked. """
-        self._get_chunk_params()
-        chunk_btree = BTreeV1RawDataChunks(
-            self.fh, self._chunk_address, self._chunk_dims)
-        return chunk_btree.construct_data_from_chunks(
-            self.chunks, self.shape, self.dtype, self.filter_pipeline)
-        
-    def get_chunk_details(self, chunk_coords):
+
+
+    def iterchunks(self, sel=None):
         """ 
-        Returns the chunk details associated with chunk coords
-        returned by the Zarr orthogonal indexer. The special case
-        is that if the data is contiguous, we still want to return
-        the offset and size, as the point of this entry point is
-        to provide third party applications an address to the data.
+        Iterate over chunks in a chunked dataset. 
+        The optional sel argument is a slice or tuple of slices that defines the region to be used. #FIXME: sel not yet implemented.
+        If not set, the entire dataspace will be used for the iterator.
+        For each chunk within the given region, the iterator yields a tuple of slices that gives the intersection of the given chunk 
+        with the selection area. This can be used to read or write data in that chunk.
+        A TypeError will be raised if the dataset is not chunked.
+        A ValueError will be raised if the selection region is invalid.
         """
-        if self.layout_class == 0:  # compact storage
-            raise NotImplementedError("Compact storage")
-        elif self.layout_class == 1:  # contiguous storage
-            # This option never used by pyfive itself as we use the memory map for
-            # access to contiguous data, but third parties may need it.
-            # Ignore coordinates, just give the location and size of entire array
-            data_offset, = struct.unpack_from('<Q', self.msg_data, self.property_offset)
-            # No way there can be filtering of an unchunked dataset, so no filter mask?
-            return data_offset, np.prod(self.shape)*np.dtype(self.dtype).itemsize, None
-        else:
-            if self._zchunk_index == {}:
-                self._get_chunk_addresses()
-
-            return self._zchunk_index[chunk_coords]
-
-    def _get_chunk_addresses(self):
-        """ 
-        Get the offset addresses associated with all the chunks 
-        known to the b-tree of this object, and load them into
-        an index suitable for use with the zarr indexer.
-        """
-        if self._zchunk_index == {}:
-
-            self._get_chunk_params()
-
-            self.chunk_btree = BTreeV1RawDataChunks(
-                self.fh, self._chunk_address, self._chunk_dims)
-
-            count = np.prod(self.shape)
-            itemsize = np.dtype(self.dtype).itemsize
-
-            # The zarr orthogonal indexer returns the position in chunk
-            # space, whereas pyfive wants the position in array space.
-            # Here we index the pyfive chunk_index in zarr index space.
-        
-            ichunks = [1/c for c in self.chunks]
-            
-            for node in self.chunk_btree.all_nodes[0]:
-                for node_key, addr in zip(node['keys'], node['addresses']):
-                    size = node_key['chunk_size']
-                    if self.filter_pipeline:
-                        # I am not sure this varies per chunk, but in case it does
-                        filter_mask = node_key['filter_mask']
-                    else:
-                        filter_mask=None
-                    start = node_key['chunk_offset'][:-1]
-                    key = tuple([int(i*d) for i,d in zip(list(start),ichunks)])
-                    self._zchunk_index[key] = (addr,size,filter_mask)
-
-    def _get_selection_via_chunks(self, args):
-        """
-        Use the zarr orthogonal indexer to extract data for a specfic selection within
-        the dataset array and in doing so, only load the relevant chunks.
-        """
-    
-        array = ZarrArrayStub(self.shape, self.chunks)
-        indexer = OrthogonalIndexer(args, array)
-        # FIXME: Need to understand what drop_axes was up to and whether or not
-        # it is relevant to this or not (I didn't understand it in the zarr implementation).
-
-        itemsize = np.dtype(self.dtype).itemsize    
-        out_shape = indexer.shape
-        out = np.empty(out_shape, dtype=self.dtype, order=self.order)
-
-        for chunk_coords, chunk_selection, out_selection in indexer:
-            addr, chunk_buffer_size, filter_mask = self.get_chunk_details(chunk_coords) 
-            chunk_buffer = self.chunk_btree.get_one_chunk_buffer(
-                addr, chunk_buffer_size, itemsize, self.filter_pipeline, filter_mask)
-            chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
-            out[out_selection] = chunk_data.reshape(self.chunks, order=self.order)[chunk_selection]
-
-        return out
-    
+        if self.chunks is None:
+            raise TypeError('Dataset is not chunked')
+        return self.id._iter_chunks(sel)
 
     def _get_selection_from_contiguous(self, args=None):
         """
@@ -802,7 +739,7 @@ class DatasetDataObject(DataObjects):
         varying fastest).
         """
 
-        # don't want to be dong this if we are actually chunked!
+        # don't want to be doing this if we are actually chunked!
         assert self.chunks is None
         
         data_offset, = struct.unpack_from('<Q', self.msg_data, self.property_offset)
