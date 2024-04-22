@@ -1,5 +1,6 @@
 import numpy as np
 from collections import namedtuple
+from operator import mul
 from .indexing import OrthogonalIndexer, ZarrArrayStub
 from .btree import BTreeV1RawDataChunks
 
@@ -20,7 +21,6 @@ class H5Dataset:
         """
         self.parent_object = dataobject
         self._chunks = self.parent_object.chunks
-        self._ichunks = [1/c for c in self._chunks]
         self._order = self.parent_object.order
 
         self.index =  None
@@ -31,8 +31,6 @@ class H5Dataset:
         # each chunk manipulation. That could be a lot of
         # empty function calls, even if they are cheap cf I/O. 
         self.__build_index()
-
-
 
     def __hash__(self):
         """ 
@@ -120,13 +118,21 @@ class H5Dataset:
         Provides internal support for iter_chunks method on parent.
         Errors should be trapped there. 
         """
-        raise NotImplementedError
-        # FIXME: This isn't it!
+        def convert_selection(tuple_of_slices):
+            # while a slice of the form slice(a,b,None) is equivalent
+            # in funtion to a slice of form (a,b,1) it is not the same.
+            # For compatability I've gone for "the same"
+            def convert_slice(aslice):
+                if aslice.step is None:
+                    return slice(aslice.start,aslice.stop,1)
+                return aslice
+            return tuple([convert_slice(a) for a in tuple_of_slices])
+    
         array = ZarrArrayStub(self.shape, self.parent_object.chunks)
         indexer = OrthogonalIndexer(args, array) 
         for chunk_coords, chunk_selection, out_selection in indexer:
-            yield out_selection
-        
+            yield convert_selection(out_selection)
+    
     def _get_raw_chunk(self, storeinfo):
         """ 
         Obtain the bytes associated with a chunk.
@@ -148,7 +154,7 @@ class H5Dataset:
         filter_pipeline = self.parent_object.filter_pipeline
 
         for chunk_coords, chunk_selection, out_selection in indexer:
-            chunk_coords = tuple([int(i*d) for i,d in zip(list(chunk_coords),self._chunks)])
+            chunk_coords = tuple(map(mul,chunk_coords,self._chunks))
             filter_mask, chunk_buffer = self.read_direct_chunk(chunk_coords)
             if filter_pipeline is not None:
                 chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, filter_pipeline, self.dtype.itemsize)

@@ -305,10 +305,8 @@ class Dataset(object):
         """ Return the size of the first axis. """
         return self.shape[0]
     
-    def iter_chunks(self, sel=None):
-        if sel == None:
-            sel = self.shape
-        return self._dataobjects.id._iter_chunks(sel)
+    def iter_chunks(self, *args):
+        return self._dataobjects.id._iter_chunks(args)
     
     @property
     def id(self):

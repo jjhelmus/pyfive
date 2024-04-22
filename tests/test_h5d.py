@@ -41,7 +41,7 @@ def get_chunks(ff, vv, view=3):
     for i in range(view):
         print('Chunk ',i)
         print(chunks[i])
-    return list(var.iter_chunks())
+    return chunks
 
 
 def test_h5d_chunking_details():
@@ -60,11 +60,12 @@ def test_iter_chunks():
         h5chunks = get_chunks(f, variable_name)
 
     with pyfive.File(mypath/filename) as g:
-        p5chunks = get_chunks(f, variable_name)
+        p5chunks = get_chunks(g, variable_name)
 
-    assert (h5chunks == p5chunks).all()
+    assert h5chunks == p5chunks 
 
 
 if __name__ == "__main__":
-    test_h5d_chunking_details()
+    #test_h5d_chunking_details()
+    test_iter_chunks()
 
