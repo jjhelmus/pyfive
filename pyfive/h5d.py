@@ -22,6 +22,8 @@ class H5Dataset:
         self.parent_object = dataobject
         self._chunks = self.parent_object.chunks
         self._order = self.parent_object.order
+        self._fh = self.parent_object.fh
+        self.filter_pipeline = self.parent_object.filter_pipeline
 
         self.index =  None
         # Should we read this at instantiation?
@@ -53,7 +55,12 @@ class H5Dataset:
         return self.parent_object.rank
     @property
     def dtype(self):
-        return np.dtype(self.parent_object.dtype)
+        # FIXME: Not sure what H5Py is doing here need to find out,
+        # but I'm sure it's not this.
+        if self.parent_object.dtype == ('REFERENCE',8):
+            return self.parent_object.dtype
+        else:
+            return np.dtype(self.parent_object.dtype)
     
     def get_chunk_info(self, index):
         """
@@ -92,7 +99,7 @@ class H5Dataset:
             return
         
         chunk_btree = BTreeV1RawDataChunks(
-                self.parent_object.fh, self.parent_object._chunk_address, self.parent_object._chunk_dims)
+                self._fh, self.parent_object._chunk_address, self.parent_object._chunk_dims)
         
         self.index = {}
         # we do this to avoid either using an iterator or many 
@@ -128,7 +135,7 @@ class H5Dataset:
                 return aslice
             return tuple([convert_slice(a) for a in tuple_of_slices])
     
-        array = ZarrArrayStub(self.shape, self.parent_object.chunks)
+        array = ZarrArrayStub(self.shape, self._chunks)
         indexer = OrthogonalIndexer(args, array) 
         for chunk_coords, chunk_selection, out_selection in indexer:
             yield convert_selection(out_selection)
@@ -138,8 +145,19 @@ class H5Dataset:
         Obtain the bytes associated with a chunk.
         """
 
-        self.parent_object.fh.seek(storeinfo.byte_offset)
-        return self.parent_object.fh.read(storeinfo.size)  
+        self._fh.seek(storeinfo.byte_offset)
+        return self._fh.read(storeinfo.size) 
+
+    def _get_reference_chunks(self, offset):
+        """ 
+        Return reference data which is chunked. At the moment
+        we re-read the b-tree to do this, since we didn't cache
+        it at index construction. #FIXME
+        """
+        chunk_btree = BTreeV1RawDataChunks(
+            self._fh, self.parent_object._chunk_address, self.parent_object._chunk_dims)
+        return chunk_btree.construct_data_from_chunks(
+            self._chunks, self.shape, self.dtype, self.filter_pipeline) 
 
     def _get_selection_via_chunks(self, args):
         """
@@ -151,13 +169,12 @@ class H5Dataset:
         indexer = OrthogonalIndexer(args, array) 
         out_shape = indexer.shape
         out = np.empty(out_shape, dtype=self.dtype, order=self._order)
-        filter_pipeline = self.parent_object.filter_pipeline
 
         for chunk_coords, chunk_selection, out_selection in indexer:
             chunk_coords = tuple(map(mul,chunk_coords,self._chunks))
             filter_mask, chunk_buffer = self.read_direct_chunk(chunk_coords)
-            if filter_pipeline is not None:
-                chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, filter_pipeline, self.dtype.itemsize)
+            if self.filter_pipeline is not None:
+                chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, self.filter_pipeline, self.dtype.itemsize)
             chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
             out[out_selection] = chunk_data.reshape(self._chunks, order=self._order)[chunk_selection]
 
