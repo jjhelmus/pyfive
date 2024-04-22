@@ -20,14 +20,14 @@ class H5Dataset:
         """
         self.parent_object = dataobject
 
+        self.index =  None
         # Should we read this at instantiation?
         # I figure yes, given folks will likely only
-        # go this low if they want to manipulate chunks
-        # Otherwise we'd have to instantiate it as None and
-        # call the build routine on every chunk manipulation.
-        # Even if that's just a return, it's a lot of empty function calls
-        # on an iteration over chunks.
-        self.index  = self.__build_index()
+        # go this low if they want to manipulate chunks.
+        # Otherwise we'd call the (cached) build routine on
+        # each chunk manipulation. That could be a lot of
+        # empty function calls, even if they are cheap cf I/O. 
+        self.__build_index()
 
     def __hash__(self):
         """ 
@@ -59,7 +59,10 @@ class H5Dataset:
         return self.index[self._nthindex[index]]
 
     def get_chunk_info_by_coord(self, coordinate_index):
-        return self.index(coordinate_index)
+        return self.index[coordinate_index]
+    
+    def get_num_chunks(self):
+        return len(self.index)
     
     def read_direct_chunk(self, chunk_position, **kwargs):
         """
@@ -78,15 +81,14 @@ class H5Dataset:
         """ 
         Build the chunk index if it doesn't exist
         """
+        
         if self.index is not None: 
             return
+        
         chunk_btree = BTreeV1RawDataChunks(
-                self.fh, self._chunk_address, self._chunk_dims)
-        count = np.prod(self.shape)
-        itemsize = np.dtype(self.dtype).itemsize
+                self.parent_object.fh, self.parent_object._chunk_address, self.parent_object._chunk_dims)
         
         self.index = {}
-
         # we do this to avoid either using an iterator or many 
         # temporary list creations if there are repeated chunk accesses.
         self._nthindex = []
@@ -95,28 +97,31 @@ class H5Dataset:
         # space, whereas pyfive wants the position in array space.
         # Here we index the pyfive chunk_index in zarr index space.
     
-        ichunks = [1/c for c in self.chunks]
+        # Can't help myself optimising to remove excessive divides
+        ichunks = [1/c for c in self.parent_object.chunks]
         
         for node in chunk_btree.all_nodes[0]:
             for node_key, addr in zip(node['keys'], node['addresses']):
+                start = node_key['chunk_offset'][:-1]
                 key = tuple([int(i*d) for i,d in zip(list(start),ichunks)])
                 size = node_key['chunk_size']
                 filter_mask = node_key['filter_mask']
-                start = node_key['chunk_offset'][:-1]
                 self._nthindex.append(key)
-                self.index[key] = StoreInfo(key, filter_mask, start, size)
+                self.index[key] = StoreInfo(key, filter_mask, addr, size)
 
-    def _iter_chunks(self, sel=None):
+
+    def _iter_chunks(self, args):
         """
         Provides internal support for iter_chunks method on parent.
         Errors should be trapped there. 
         """
-
-        if sel is None:
-            yield from self.index.values()
-        else:
-            raise NotImplementedError
-    
+        raise NotImplementedError
+        # FIXME: This isn't it!
+        array = ZarrArrayStub(self.shape, self.parent_object.chunks)
+        indexer = OrthogonalIndexer(args, array) 
+        for chunk_coords, chunk_selection, out_selection in indexer:
+            yield out_selection
+        
     def _get_raw_chunk(self, storeinfo):
         """ 
         Obtain the bytes associated with a chunk.
@@ -131,18 +136,17 @@ class H5Dataset:
         the dataset array and in doing so, only load the relevant chunks.
         """
 
-        array = ZarrArrayStub(self.shape, self.chunks)
+        array = ZarrArrayStub(self.shape, self.parent_object.chunks)
         indexer = OrthogonalIndexer(args, array) 
         out_shape = indexer.shape
-        out = np.empty(out_shape, dtype=self.dtype, order=self.order)
+        out = np.empty(out_shape, dtype=self.dtype, order=self.parent_object.order)
+        filter_pipeline = self.parent_object.filter_pipeline
 
         for chunk_coords, chunk_selection, out_selection in indexer:
-            chunk_info = self.get_chunk_info_by_coord(chunk_coords)
-            filter_mask, chunk_buffer = self.read_direct_chunk(chunk_coords.chunk_offset)
-            if self.filter_pipeline is not None:
-                chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, self.filter_pipeline, self.itemsize)
-            chunk_buffer = self._unpack_chunk(chunk_buffer, chunk_info)
+            filter_mask, chunk_buffer = self.read_direct_chunk(chunk_coords)
+            if filter_pipeline is not None:
+                chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, filter_pipeline, self.dtype.itemsize)
             chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
-            out[out_selection] = chunk_data.reshape(self.chunks, order=self.order)[chunk_selection]
+            out[out_selection] = chunk_data.reshape(self.parent_object.chunks, order=self.parent_object.order)[chunk_selection]
 
         return out

@@ -20,7 +20,7 @@ from .btree import BTreeV2GroupNames, BTreeV2GroupOrders
 from .btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
 from .misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap
 from .h5d import H5Dataset
-
+from .indexing import OrthogonalIndexer, ZarrArrayStub
 
 # these constants happen to have the same value...
 UNLIMITED_SIZE = UNDEFINED_ADDRESS
@@ -637,6 +637,7 @@ class DatasetDataObject(DataObjects):
         Objects of this class provides methods for working directly with chunked data.
         """
         if self._id is None:
+            self._get_chunk_params()
             self._id = H5Dataset(self)
         return self._id
 

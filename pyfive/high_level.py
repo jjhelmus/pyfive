@@ -304,12 +304,21 @@ class Dataset(object):
     def len(self):
         """ Return the size of the first axis. """
         return self.shape[0]
+    
+    def iter_chunks(self, sel=None):
+        if sel == None:
+            sel = self.shape
+        return self._dataobjects.id._iter_chunks(sel)
+    
+    @property
+    def id(self):
+        return self._dataobjects.id
 
     @property
     def shape(self):
         """ shape attribute. """
         return self._dataobjects.shape
-
+    
     @property
     def maxshape(self):
         """ maxshape attribute. (None for unlimited dimensions) """
