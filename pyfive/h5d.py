@@ -70,9 +70,16 @@ class H5Dataset:
         return self.index[self._nthindex[index]]
 
     def get_chunk_info_by_coord(self, coordinate_index):
+        """
+        Retrieve information about a chunk specified by the array address of the chunk’s 
+        first element in each dimension.
+        """
         return self.index[coordinate_index]
     
     def get_num_chunks(self):
+        """ 
+        Return total number of chunks in dataset
+        """
         return len(self.index)
     
     def read_direct_chunk(self, chunk_position, **kwargs):
