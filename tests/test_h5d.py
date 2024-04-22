@@ -19,23 +19,21 @@ def chunk_down(ff, vv):
     """
     var = ff[vv]
     v = var[2,2]
-    print(v)
     varid = var.id
     n = varid.get_num_chunks()
     c = varid.get_chunk_info(4)
-    for i in range(varid.get_num_chunks()):
-        print(varid.get_chunk_info(i))
     with pytest.raises(OSError):
         # This isn't on the chunk boundary, so should fail
         address = breaking_address
         d = varid.read_direct_chunk(address)
     address = c.chunk_offset
     d = varid.read_direct_chunk(address)
-   
+    dd = varid.get_chunk_info_by_coord(address)
+
     return n, c.chunk_offset, c.filter_mask, c.byte_offset, c.size, d, v
 
 
-def get_chunks(ff, vv, view=3):
+def get_chunks(ff, vv, view=0):
     var = ff[vv]
     chunks = list(var.iter_chunks())
     for i in range(view):
@@ -66,6 +64,6 @@ def test_iter_chunks():
 
 
 if __name__ == "__main__":
-    #test_h5d_chunking_details()
+    test_h5d_chunking_details()
     test_iter_chunks()
 
