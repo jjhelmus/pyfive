@@ -70,6 +70,7 @@ class H5Dataset:
         Additional arugments supported by H5Py are not supported here.
         """
         storeinfo = self.index[chunk_position]
+        print(storeinfo)
         return storeinfo.filter_mask, self._get_raw_chunk(storeinfo)
         
     ######
