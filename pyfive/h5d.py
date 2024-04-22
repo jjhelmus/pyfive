@@ -19,6 +19,9 @@ class H5Dataset:
         Instantiated with the pyfive datasetdataobject
         """
         self.parent_object = dataobject
+        self._chunks = self.parent_object.chunks
+        self._ichunks = [1/c for c in self._chunks]
+        self._order = self.parent_object.order
 
         self.index =  None
         # Should we read this at instantiation?
@@ -28,6 +31,8 @@ class H5Dataset:
         # each chunk manipulation. That could be a lot of
         # empty function calls, even if they are cheap cf I/O. 
         self.__build_index()
+
+
 
     def __hash__(self):
         """ 
@@ -55,6 +60,7 @@ class H5Dataset:
     def get_chunk_info(self, index):
         """
         Retrieve storage information about a chunk specified by its index.
+        Our index is in chunk space, but H5Py wants it in coordinate space.
         """
         return self.index[self._nthindex[index]]
 
@@ -69,8 +75,9 @@ class H5Dataset:
         Returns a tuple containing the filter_mask and the raw data storing this chunk as bytes.
         Additional arugments supported by H5Py are not supported here.
         """
+        if chunk_position not in self.index:
+            raise OSError("Chunk coordinates must lie on chunk boundaries")
         storeinfo = self.index[chunk_position]
-        print(storeinfo)
         return storeinfo.filter_mask, self._get_raw_chunk(storeinfo)
         
     ######
@@ -97,14 +104,11 @@ class H5Dataset:
         # The zarr orthogonal indexer returns the position in chunk
         # space, whereas pyfive wants the position in array space.
         # Here we index the pyfive chunk_index in zarr index space.
-    
-        # Can't help myself optimising to remove excessive divides
-        ichunks = [1/c for c in self.parent_object.chunks]
         
         for node in chunk_btree.all_nodes[0]:
             for node_key, addr in zip(node['keys'], node['addresses']):
                 start = node_key['chunk_offset'][:-1]
-                key = tuple([int(i*d) for i,d in zip(list(start),ichunks)])
+                key = start
                 size = node_key['chunk_size']
                 filter_mask = node_key['filter_mask']
                 self._nthindex.append(key)
@@ -137,17 +141,18 @@ class H5Dataset:
         the dataset array and in doing so, only load the relevant chunks.
         """
 
-        array = ZarrArrayStub(self.shape, self.parent_object.chunks)
+        array = ZarrArrayStub(self.shape, self._chunks)
         indexer = OrthogonalIndexer(args, array) 
         out_shape = indexer.shape
-        out = np.empty(out_shape, dtype=self.dtype, order=self.parent_object.order)
+        out = np.empty(out_shape, dtype=self.dtype, order=self._order)
         filter_pipeline = self.parent_object.filter_pipeline
 
         for chunk_coords, chunk_selection, out_selection in indexer:
+            chunk_coords = tuple([int(i*d) for i,d in zip(list(chunk_coords),self._chunks)])
             filter_mask, chunk_buffer = self.read_direct_chunk(chunk_coords)
             if filter_pipeline is not None:
                 chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, filter_pipeline, self.dtype.itemsize)
             chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
-            out[out_selection] = chunk_data.reshape(self.parent_object.chunks, order=self.parent_object.order)[chunk_selection]
+            out[out_selection] = chunk_data.reshape(self._chunks, order=self._order)[chunk_selection]
 
         return out

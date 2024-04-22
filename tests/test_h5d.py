@@ -4,31 +4,39 @@ from pathlib import Path
 import pytest
 
 mypath = Path(__file__).parent
-
 filename = 'compressed.hdf5'
 variable_name = 'dataset3'
+breaking_address=(2,0)
+
+#mypath = mypath.parent/'bnl/'
+#filename = 'da193o_25_day__grid_T_198807-198807.nc'
+#variable_name = 'tos'
+# breaking_address=(2,0,3)
 
 def chunk_down(ff, vv):
     """ 
     Test the chunking stuff
     """
     var = ff[vv]
+    v = var[2,2]
+    print(v)
     varid = var.id
     n = varid.get_num_chunks()
     c = varid.get_chunk_info(4)
+    for i in range(varid.get_num_chunks()):
+        print(varid.get_chunk_info(i))
     with pytest.raises(OSError):
         # This isn't on the chunk boundary, so should fail
-        address = (2,0)
+        address = breaking_address
         d = varid.read_direct_chunk(address)
     address = c.chunk_offset
     d = varid.read_direct_chunk(address)
-    return n, c.chunk_offset, c.filter_mask, c.byte_offset, c.size, d
+   
+    return n, c.chunk_offset, c.filter_mask, c.byte_offset, c.size, d, v
 
 
 def get_chunks(ff, vv, view=3):
     var = ff[vv]
-    x = var[:,2]
-    y = var[:,:]
     chunks = list(var.iter_chunks())
     for i in range(view):
         print('Chunk ',i)
