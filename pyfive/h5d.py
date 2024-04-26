@@ -12,8 +12,8 @@ class H5Dataset:
     
     Also, many H5D* functions which take a dataset instance as their first argument 
     are presented as methods of this class. This is a subset of those supported
-    by H5Py's module H5D.
-    
+    by H5Py's module H5D, but includes all the low level methods for working with 
+    chunked data.
     """
     def __init__(self, dataobject):
         """ 
@@ -36,7 +36,7 @@ class H5Dataset:
 
     def __hash__(self):
         """ 
-        H5py says this is hasable, we haven't implemented that.
+        H5py says this is hashable, we haven't implemented that.
         """
         raise NotImplementedError
         
@@ -151,7 +151,6 @@ class H5Dataset:
         """ 
         Obtain the bytes associated with a chunk.
         """
-
         self._fh.seek(storeinfo.byte_offset)
         return self._fh.read(storeinfo.size) 
 
