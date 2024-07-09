@@ -1,8 +1,8 @@
 import numpy as np
 from collections import namedtuple
 from operator import mul
-from .indexing import OrthogonalIndexer, ZarrArrayStub
-from .btree import BTreeV1RawDataChunks
+from pyfive.indexing import OrthogonalIndexer, ZarrArrayStub
+from pyfive.btree import BTreeV1RawDataChunks
 
 StoreInfo = namedtuple('StoreInfo',"chunk_offset filter_mask byte_offset size")
 
@@ -57,7 +57,7 @@ class H5Dataset:
     def dtype(self):
         # FIXME: Not sure what H5Py is doing here need to find out,
         # but I'm sure it's not this.
-        if self.parent_object.dtype == ('REFERENCE',8):
+        if self.parent_object.dtype == ('REFERENCE', 8):
             return self.parent_object.dtype
         else:
             return np.dtype(self.parent_object.dtype)
@@ -138,7 +138,7 @@ class H5Dataset:
             # For compatability I've gone for "the same"
             def convert_slice(aslice):
                 if aslice.step is None:
-                    return slice(aslice.start,aslice.stop,1)
+                    return slice(aslice.start, aslice.stop, 1)
                 return aslice
             return tuple([convert_slice(a) for a in tuple_of_slices])
     
@@ -177,7 +177,7 @@ class H5Dataset:
         out = np.empty(out_shape, dtype=self.dtype, order=self._order)
 
         for chunk_coords, chunk_selection, out_selection in indexer:
-            chunk_coords = tuple(map(mul,chunk_coords,self._chunks))
+            chunk_coords = tuple(map(mul, chunk_coords, self._chunks))
             filter_mask, chunk_buffer = self.read_direct_chunk(chunk_coords)
             if self.filter_pipeline is not None:
                 chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, self.filter_pipeline, self.dtype.itemsize)

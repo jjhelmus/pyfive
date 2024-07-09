@@ -62,8 +62,3 @@ def test_iter_chunks():
 
     assert h5chunks == p5chunks 
 
-
-if __name__ == "__main__":
-    test_h5d_chunking_details()
-    test_iter_chunks()
-
