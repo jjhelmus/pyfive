@@ -9,18 +9,18 @@ from io import UnsupportedOperation
 
 import numpy as np
 
-from .datatype_msg import DatatypeMessage
-from .core import _padded_size, _structure_size
-from .core import _unpack_struct_from, _unpack_struct_from_file
-from .core import InvalidHDF5File
-from .core import Reference
-from .core import UNDEFINED_ADDRESS
-from .btree import BTreeV1Groups, BTreeV1RawDataChunks
-from .btree import BTreeV2GroupNames, BTreeV2GroupOrders
-from .btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
-from .misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap
-from .h5d import H5Dataset
-from .indexing import OrthogonalIndexer, ZarrArrayStub
+from pyfive.datatype_msg import DatatypeMessage
+from pyfive.core import _padded_size, _structure_size
+from pyfive.core import _unpack_struct_from, _unpack_struct_from_file
+from pyfive.core import InvalidHDF5File
+from pyfive.core import Reference
+from pyfive.core import UNDEFINED_ADDRESS
+from pyfive.btree import BTreeV1Groups, BTreeV1RawDataChunks
+from pyfive.btree import BTreeV2GroupNames, BTreeV2GroupOrders
+from pyfive.btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
+from pyfive.misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap
+from pyfive.h5d import H5Dataset
+from pyfive.indexing import OrthogonalIndexer, ZarrArrayStub
 
 # these constants happen to have the same value...
 UNLIMITED_SIZE = UNDEFINED_ADDRESS
@@ -602,15 +602,15 @@ class DatasetDataObject(DataObjects):
     Subclass of DataObjects associated with one Dataset, 
     handles actual data access.
     """
-    def __init__(self,*args,**kwargs):
+    def __init__(self, *args, **kwargs):
         """
         Initialise via super class
         """
-        super().__init__(*args,**kwargs)
+        super().__init__(*args, **kwargs)
         self._id = None
 
         # make this explicit, but controllable
-        self.order='C'
+        self.order = 'C'
 
         ##########################################################################
         # pseudo chunking control. 
@@ -636,6 +636,8 @@ class DatasetDataObject(DataObjects):
         Represents a PyFive approximation of an HDF5 dataset identifier.
         Objects of this class provides methods for working directly with chunked data.
         """
+        # When instantiated self._id is None, this property is called when the
+        # class instance is first used in anger to actually get the chunk indices etc 
         if self._id is None:
             self._get_chunk_params()
             self._id = H5Dataset(self)
@@ -649,7 +651,7 @@ class DatasetDataObject(DataObjects):
         if self.layout_class == 0:  # compact storage
             raise NotImplementedError("Compact storage")
         elif self.layout_class == 1:  # contiguous storage
-            return self._get_contiguous_data(self.property_offset,args)
+            return self._get_contiguous_data(self.property_offset, args)
         if self.layout_class == 2:  # chunked storage
             # If the dtype is a tuple, we don't really know how to deal with it chunk by chunk in this version
             if isinstance(self.dtype, tuple):
@@ -700,13 +702,13 @@ class DatasetDataObject(DataObjects):
             if dtype_class == 'REFERENCE':
                 size = self.dtype[1]
                 if size != 8:
-                    raise NotImplementedError('Unsupported Reference type')
+                    raise NotImplementedError('Unsupported Reference type - size {size}')
                 ref_addresses = np.memmap(
                     self.fh, dtype=('<u8'), mode='c', offset=data_offset,
                     shape=self.shape, order=self.order)
                 return np.array([Reference(addr) for addr in ref_addresses])[args]
             else:
-                raise NotImplementedError('datatype not implemented')
+                raise NotImplementedError('datatype not implemented - {dtype_class}')
 
 
 
@@ -738,7 +740,9 @@ class DatasetDataObject(DataObjects):
         """
 
         # don't want to be doing this if we are actually chunked!
-        assert self.chunks is None
+        if self.chunks is not None:
+            raise RuntimeError('Unexpected call to continguous selection for chunked data')
+    
         
         data_offset, = struct.unpack_from('<Q', self.msg_data, self.property_offset)
         itemsize = np.dtype(self.dtype).itemsize
@@ -750,8 +754,8 @@ class DatasetDataObject(DataObjects):
             self.pseudo_chunking = False
 
         if self.pseudo_chunking:
-            stride = np.prod(self.shape[1:])*itemsize
-            if stride < self.pseudo_block_size_kib*1024:
+            stride = np.prod(self.shape[1:]) * itemsize
+            if stride < self.pseudo_block_size_kib * 1024:
                 self.pseudo_chunking = False
         
         if self.pseudo_chunking:
@@ -763,7 +767,7 @@ class DatasetDataObject(DataObjects):
  
         if args is None:
 
-            # we need it all, let's get it all
+            # we need it all, let's get it all (i.e. this really does read the lot)
             self.fh.seek(data_offset)
             chunk_buffer = self.fh.read(stride)
             chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
@@ -782,11 +786,14 @@ class DatasetDataObject(DataObjects):
             out = np.empty(out_shape, dtype=self.dtype, order=self.order)
 
             for chunk_coords, chunk_selection, out_selection in indexer:
-                index = data_offset+chunk_coords[0]*stride
+                index = data_offset + chunk_coords[0] * stride
                 self.fh.seek(index)
                 chunk_buffer = self.fh.read(stride)
                 chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
-                out[out_selection] = chunk_data.reshape(pseudo_chunks, order=self.order)[chunk_selection]
+                try: 
+                    out[out_selection] = chunk_data.reshape(pseudo_chunks, order=self.order)[chunk_selection]
+                except Exception as e:
+                    raise IOError('Pseudo chunk reshape failed, original error is {e}')
             return out
         
 
