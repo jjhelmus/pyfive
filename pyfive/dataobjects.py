@@ -5,6 +5,7 @@ from __future__ import division
 from collections import OrderedDict
 import struct
 import warnings
+from io import UnsupportedOperation
 
 import numpy as np
 
@@ -18,6 +19,8 @@ from .btree import BTreeV1Groups, BTreeV1RawDataChunks
 from .btree import BTreeV2GroupNames, BTreeV2GroupOrders
 from .btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
 from .misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap
+from .h5d import H5Dataset
+from .indexing import OrthogonalIndexer, ZarrArrayStub
 
 # these constants happen to have the same value...
 UNLIMITED_SIZE = UNDEFINED_ADDRESS
@@ -28,7 +31,7 @@ class DataObjects(object):
     HDF5 DataObjects.
     """
 
-    def __init__(self, fh, offset):
+    def __init__(self, fh, offset, order='C'):
         """ initalize. """
         fh.seek(offset)
         version_hint = struct.unpack_from('<B', fh.read(1))[0]
@@ -53,6 +56,7 @@ class DataObjects(object):
         self._chunks = None
         self._chunk_dims = None
         self._chunk_address = None
+        self.order = order
 
     @staticmethod
     def _parse_v1_objects(fh):
@@ -417,74 +421,6 @@ class DataObjects(object):
         self._filter_pipeline = filters
         return self._filter_pipeline
 
-    def get_data(self):
-        """ Return the data pointed to in the DataObject. """
-
-        # offset and size from data storage message
-        msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
-        msg_offset = msg['offset_to_message']
-        version, dims, layout_class, property_offset = (
-            self._get_data_message_properties(msg_offset))
-
-        if layout_class == 0:  # compact storage
-            raise NotImplementedError("Compact storage")
-        elif layout_class == 1:  # contiguous storage
-            return self._get_contiguous_data(property_offset)
-        if layout_class == 2:  # chunked storage
-            return self._get_chunked_data(msg_offset)
-
-    def _get_data_message_properties(self, msg_offset):
-        """ Return the message properties of the DataObject. """
-        dims, layout_class, property_offset = None, None, None
-        version, arg1, arg2 = struct.unpack_from(
-            '<BBB', self.msg_data, msg_offset)
-        if (version == 1) or (version == 2):
-            dims = arg1
-            layout_class = arg2
-            property_offset = msg_offset
-            property_offset += struct.calcsize('<BBB')
-            # reserved fields: 1 byte, 1 int
-            property_offset += struct.calcsize('<BI')
-            # compact storage (layout class 0) not supported:
-            assert (layout_class == 1) or (layout_class == 2)
-        elif (version == 3) or (version == 4):
-            layout_class = arg1
-            property_offset = msg_offset
-            property_offset += struct.calcsize('<BB')
-        assert (version >= 1) and (version <= 4)
-        return version, dims, layout_class, property_offset
-
-    def _get_contiguous_data(self, property_offset):
-        data_offset, = struct.unpack_from('<Q', self.msg_data, property_offset)
-
-        if data_offset == UNDEFINED_ADDRESS:
-            # no storage is backing array, return all zeros
-            return np.zeros(self.shape, dtype=self.dtype)
-
-        if not isinstance(self.dtype, tuple):
-            # return a memory-map to the stored array with copy-on-write
-            return np.memmap(self.fh, dtype=self.dtype, mode='c',
-                             offset=data_offset, shape=self.shape, order='C')
-        else:
-            dtype_class = self.dtype[0]
-            if dtype_class == 'REFERENCE':
-                size = self.dtype[1]
-                if size != 8:
-                    raise NotImplementedError('Unsupported Reference type')
-                ref_addresses = np.memmap(
-                    self.fh, dtype=('<u8'), mode='c', offset=data_offset,
-                    shape=self.shape, order='C')
-                return np.array([Reference(addr) for addr in ref_addresses])
-            else:
-                raise NotImplementedError('datatype not implemented')
-
-    def _get_chunked_data(self, offset):
-        """ Return data which is chunked. """
-        self._get_chunk_params()
-        chunk_btree = BTreeV1RawDataChunks(
-            self.fh, self._chunk_address, self._chunk_dims)
-        return chunk_btree.construct_data_from_chunks(
-            self.chunks, self.shape, self.dtype, self.filter_pipeline)
 
     def _get_chunk_params(self):
         """
@@ -659,7 +595,202 @@ class DataObjects(object):
     def is_dataset(self):
         """ True when DataObjects points to a dataset, False for a group. """
         return len(self.find_msg_type(DATASPACE_MSG_TYPE)) > 0
+    
 
+class DatasetDataObject(DataObjects):
+    """ 
+    Subclass of DataObjects associated with one Dataset, 
+    handles actual data access.
+    """
+    def __init__(self,*args,**kwargs):
+        """
+        Initialise via super class
+        """
+        super().__init__(*args,**kwargs)
+        self._id = None
+
+        # make this explicit, but controllable
+        self.order='C'
+
+        ##########################################################################
+        # pseudo chunking control. 
+        # these can be changed from outside for optimisation
+        # pseudo chunk blocksize: this is a size below which we don't bother 
+        # pseudo chunking for contiguous data and just load the lot at data
+        # access time: units are kibibytes
+        self.pseudo_chunking = True
+        self.pseudo_block_size_kib = 1024
+        # We can't use mmaps on S3
+        self.avoid_mmap = True
+        ##########################################################################
+
+        # offset and size from data storage message
+        msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
+        self.msg_offset = msg['offset_to_message']
+        version, dims, self.layout_class, self.property_offset = (
+            self._get_data_message_properties(self.msg_offset))
+        
+    @property
+    def id(self):
+        """ 
+        Represents a PyFive approximation of an HDF5 dataset identifier.
+        Objects of this class provides methods for working directly with chunked data.
+        """
+        if self._id is None:
+            self._get_chunk_params()
+            self._id = H5Dataset(self)
+        return self._id
+
+    def get_data(self, args):
+        """ 
+        Return the data pointed to in the DataObject.
+        """
+
+        if self.layout_class == 0:  # compact storage
+            raise NotImplementedError("Compact storage")
+        elif self.layout_class == 1:  # contiguous storage
+            return self._get_contiguous_data(self.property_offset,args)
+        if self.layout_class == 2:  # chunked storage
+            # If the dtype is a tuple, we don't really know how to deal with it chunk by chunk in this version
+            if isinstance(self.dtype, tuple):
+                return self.id._get_reference_chunks(self.msg_offset)[args]
+            else:
+                return self.id._get_selection_via_chunks(args)
+
+    def _get_data_message_properties(self, msg_offset):
+        """ Return the message properties of the DataObject. """
+        dims, layout_class, property_offset = None, None, None
+        version, arg1, arg2 = struct.unpack_from(
+            '<BBB', self.msg_data, msg_offset)
+        if (version == 1) or (version == 2):
+            dims = arg1
+            layout_class = arg2
+            property_offset = msg_offset
+            property_offset += struct.calcsize('<BBB')
+            # reserved fields: 1 byte, 1 int
+            property_offset += struct.calcsize('<BI')
+            # compact storage (layout class 0) not supported:
+            assert (layout_class == 1) or (layout_class == 2)
+        elif (version == 3) or (version == 4):
+            layout_class = arg1
+            property_offset = msg_offset
+            property_offset += struct.calcsize('<BB')
+        assert (version >= 1) and (version <= 4)
+        return version, dims, layout_class, property_offset
+
+    def _get_contiguous_data(self, property_offset, args):
+        data_offset, = struct.unpack_from('<Q', self.msg_data, property_offset)
+
+        if data_offset == UNDEFINED_ADDRESS:
+            # no storage is backing array, return all zeros
+            return np.zeros(self.shape, dtype=self.dtype)[args]
+
+        if not isinstance(self.dtype, tuple):
+            if self.avoid_mmap:
+                return self._get_selection_from_contiguous(args)
+            else:
+                try:
+                    # return a memory-map to the stored array with copy-on-write
+                    return np.memmap(self.fh, dtype=self.dtype, mode='c',
+                                offset=data_offset, shape=self.shape, order=self.order)[args]
+                except UnsupportedOperation:
+                    return self._get_selection_from_contiguous(args)
+        else:
+            dtype_class = self.dtype[0]
+            if dtype_class == 'REFERENCE':
+                size = self.dtype[1]
+                if size != 8:
+                    raise NotImplementedError('Unsupported Reference type')
+                ref_addresses = np.memmap(
+                    self.fh, dtype=('<u8'), mode='c', offset=data_offset,
+                    shape=self.shape, order=self.order)
+                return np.array([Reference(addr) for addr in ref_addresses])[args]
+            else:
+                raise NotImplementedError('datatype not implemented')
+
+
+
+    def iterchunks(self, sel=None):
+        """ 
+        Iterate over chunks in a chunked dataset. 
+        The optional sel argument is a slice or tuple of slices that defines the region to be used. #FIXME: sel not yet implemented.
+        If not set, the entire dataspace will be used for the iterator.
+        For each chunk within the given region, the iterator yields a tuple of slices that gives the intersection of the given chunk 
+        with the selection area. This can be used to read or write data in that chunk.
+        A TypeError will be raised if the dataset is not chunked.
+        A ValueError will be raised if the selection region is invalid.
+        """
+        if self.chunks is None:
+            raise TypeError('Dataset is not chunked')
+        return self.id._iter_chunks(sel)
+
+    def _get_selection_from_contiguous(self, args=None):
+        """
+        Two options, we either read the entire contiguous array, and pull out
+        the selection (args) from that, or we try and read the contiguous
+        array in pseudo chunks (being the contiguous data which varies on
+        the slowest axis). We only do the latter if a) we have the
+        pseudo_chunking turned on (see init method), b) the array is 
+        multi dimensional, and c) the slabs are big enough to bother
+        (i.e bigger than pseudo_block_size_kib). We use the fact that the
+        storage order is known (HDF writes in the C-order, last axis
+        varying fastest).
+        """
+
+        # don't want to be doing this if we are actually chunked!
+        assert self.chunks is None
+        
+        data_offset, = struct.unpack_from('<Q', self.msg_data, self.property_offset)
+        itemsize = np.dtype(self.dtype).itemsize
+        
+        #are we 1d, too small to worry about pseudo chunks, or is pseudo chunking turned off?
+        #if so, read the lot as one chunk, otherwise use collapse all but last dimension into chunks
+      
+        if len(self.shape) == 1:
+            self.pseudo_chunking = False
+
+        if self.pseudo_chunking:
+            stride = np.prod(self.shape[1:])*itemsize
+            if stride < self.pseudo_block_size_kib*1024:
+                self.pseudo_chunking = False
+        
+        if self.pseudo_chunking:
+            pseudo_chunks = np.copy(self.shape)
+            pseudo_chunks[0] = 1
+        else:
+            stride = np.prod(self.shape)*itemsize
+            pseudo_chunks=self.shape
+ 
+        if args is None:
+
+            # we need it all, let's get it all
+            self.fh.seek(data_offset)
+            chunk_buffer = self.fh.read(stride)
+            chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
+            chunk_data.reshape(self.shape, order=self.order)
+            return chunk_data
+        
+        else:
+
+            # we are hoping that with the pseudo chunking we can avoid some reads
+            # this will be the case if the selection is "along the grain",
+            # otherwise this could be slower.
+
+            array = ZarrArrayStub(self.shape, pseudo_chunks)
+            indexer = OrthogonalIndexer(args, array)
+            out_shape = indexer.shape
+            out = np.empty(out_shape, dtype=self.dtype, order=self.order)
+
+            for chunk_coords, chunk_selection, out_selection in indexer:
+                index = data_offset+chunk_coords[0]*stride
+                self.fh.seek(index)
+                chunk_buffer = self.fh.read(stride)
+                chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
+                out[out_selection] = chunk_data.reshape(pseudo_chunks, order=self.order)[chunk_selection]
+            return out
+        
+
+        
 
 def determine_data_shape(buf, offset):
     """ Return the shape of the dataset pointed to in a Dataspace message. """
