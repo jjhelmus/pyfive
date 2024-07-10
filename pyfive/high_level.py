@@ -7,9 +7,10 @@ import posixpath
 
 import numpy as np
 
-from .core import Reference
-from .dataobjects import DataObjects, DatasetDataObject
-from .misc_low_level import SuperBlock
+from pyfive.core import Reference
+from pyfive.dataobjects import DataObjects, DatasetDataObject
+from pyfive.misc_low_level import SuperBlock
+from pyfive.datatype_msg import DatatypeMessage
 
 
 class Group(Mapping):
@@ -172,8 +173,10 @@ class File(Group):
 
     """
 
-    def __init__(self, filename):
+    def __init__(self, filename, mode='r'):
         """ initalize. """
+        if mode != 'r':
+            raise NotImplementedError('pyfive only provides support for reading and treats all reads as binary')
         self._close = False
         if hasattr(filename, 'read'):
             if not hasattr(filename, 'seek'):
@@ -443,3 +446,14 @@ class AstypeContext(object):
 
     def __exit__(self, *args):
         self._dset._astype = None
+
+
+class Datatype(DatatypeMessage):
+    """
+    Class provided for compatbility with the H5PY API.
+    It's not yet clear where and how this might be used
+    by that name (if at all), but the existence of a 
+    class with this name is required by h5netcdf.
+    """
+    def __init__(self, *args, **kw):
+         super().__init__(self, *args, **kw)
