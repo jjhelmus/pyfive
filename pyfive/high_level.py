@@ -4,13 +4,14 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 import os
 import posixpath
+import warnings
 
 import numpy as np
 
 from pyfive.core import Reference
 from pyfive.dataobjects import DataObjects, DatasetDataObject
 from pyfive.misc_low_level import SuperBlock
-from pyfive.datatype_msg import DatatypeMessage
+
 
 
 class Group(Mapping):
@@ -91,7 +92,19 @@ class Group(Mapping):
             if additional_obj != '.':
                 raise KeyError('%s is a dataset, not a group' % (obj_name))
             return Dataset(obj_name, DatasetDataObject(self.file._fh, link_target), self)
-        return Group(obj_name, dataobjs, self)[additional_obj]
+       
+        try:
+            # if true, this may well raise a NotImplementedError, if so, we need
+            # to warn the user, who may be able to use other parts of the data.
+            is_datatype = dataobjs.is_datatype
+        except NotImplementedError as e:
+            warnings.warn(f'Found datatype {obj_name} but pyfive cannot read this data: {e}')
+            is_datatype = True
+
+        if is_datatype: 
+            pass
+        else:
+            return Group(obj_name, dataobjs, self)[additional_obj]
 
     def __iter__(self):
         for k in self._links.keys():
@@ -334,7 +347,10 @@ class Dataset(object):
     def dtype(self):
         """ dtype attribute. """
         # In the HDF5 implementation this is a numpy dtype
-        return self._dataobjects.dtype
+        try:
+            return self._dataobjects.dtype
+        except NotImplementedError as e:
+            raise NotImplementedError(f'{e} (for {self.name})')
 
     @property
     def value(self):
@@ -447,13 +463,3 @@ class AstypeContext(object):
     def __exit__(self, *args):
         self._dset._astype = None
 
-
-class Datatype(DatatypeMessage):
-    """
-    Class provided for compatbility with the H5PY API.
-    It's not yet clear where and how this might be used
-    by that name (if at all), but the existence of a 
-    class with this name is required by h5netcdf.
-    """
-    def __init__(self, *args, **kw):
-         super().__init__(self, *args, **kw)

@@ -596,6 +596,18 @@ class DataObjects(object):
         """ True when DataObjects points to a dataset, False for a group. """
         return len(self.find_msg_type(DATASPACE_MSG_TYPE)) > 0
     
+    @property
+    def is_datatype(self):
+        """ Is this a standalone datatype definition?"""
+        if self.msgs[0]['type'] == DATATYPE_MSG_TYPE:
+            #I'm thinking that for the moment, this almost certainly means 
+            #an unimplemented user datatype. If so, let's tell the higher
+            #level now, as the following will raise a NotImplementedError
+            x = DatatypeMessage(self.msg_data, self.msgs[0]['offset_to_message'])
+            return True
+        else:
+            return False
+    
 
 class DatasetDataObject(DataObjects):
     """ 
