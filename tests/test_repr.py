@@ -19,7 +19,7 @@ def test_repr():
         assert str(group1) == group1_str
 
         dataset1 = hfile['dataset1']
-        dataset1_str = '<HDF5 dataset "dataset1": shape (4,), type "<i4">'
+        dataset1_str = '<HDF5 dataset "dataset1": shape (4,), type "int32">'
         assert str(dataset1) == dataset1_str
 
         subgroup1 = group1['subgroup1']

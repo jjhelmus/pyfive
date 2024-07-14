@@ -346,9 +346,8 @@ class Dataset(object):
     @property
     def dtype(self):
         """ dtype attribute. """
-        # In the HDF5 implementation this is a numpy dtype
         try:
-            return self._dataobjects.dtype
+            return np.dtype(self._dataobjects.dtype)
         except NotImplementedError as e:
             raise NotImplementedError(f'{e} (for {self.name})')
 

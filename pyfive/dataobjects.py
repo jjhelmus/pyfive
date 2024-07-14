@@ -188,7 +188,7 @@ class DataObjects(object):
 
         # read in the dataspace information
         shape, maxshape = determine_data_shape(self.msg_data, offset)
-        items = int(np.product(shape))
+        items = int(np.prod(shape))
         offset += _padded_size(attr_dict['dataspace_size'], padding_multiple)
 
         # read in the value(s)
