@@ -286,6 +286,7 @@ class Dataset(object):
         self._dataobjects = dataobjects
         self._attrs = None
         self._astype = None
+        self._id = None
 
     def __repr__(self):
         info = (os.path.basename(self.name), self.shape, self.dtype)
@@ -326,7 +327,10 @@ class Dataset(object):
     
     @property
     def id(self):
-        return self._dataobjects.id
+        # we want to make sure that this is lazy and cached
+        if self._id is None:
+            self._id = self._dataobjects.id
+        return self._id
 
     @property
     def shape(self):

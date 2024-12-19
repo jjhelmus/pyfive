@@ -3,6 +3,7 @@ from collections import namedtuple
 from operator import mul
 from pyfive.indexing import OrthogonalIndexer, ZarrArrayStub
 from pyfive.btree import BTreeV1RawDataChunks
+from pyfive.core import Reference
 
 StoreInfo = namedtuple('StoreInfo',"chunk_offset filter_mask byte_offset size")
 
@@ -13,55 +14,54 @@ class H5Dataset:
     Also, many H5D* functions which take a dataset instance as their first argument 
     are presented as methods of this class. This is a subset of those supported
     by H5Py's module H5D, but includes all the low level methods for working with 
-    chunked data.
+    chunked data, lazily or not. This class has been deliberately implemented in
+    such as way so that once you have an instance, it is completely independent
+    of the parent file, and it can be used efficiently in threads without rereading
+    the btree etc.
     """
     def __init__(self, dataobject):
         """ 
-        Instantiated with the pyfive datasetdataobject
+        Instantiated with the pyfive datasetdataobject, we copy and cache everything 
+        we want so it can be used after the parent file is closed, without needing 
+        to go back to storage.
         """
-        self.parent_object = dataobject
-        self._chunks = self.parent_object.chunks
-        self._order = self.parent_object.order
-        self._fh = self.parent_object.fh
-        self.filter_pipeline = self.parent_object.filter_pipeline
+        self._chunks = dataobject.chunks
+        self._order = dataobject.order
+        self._filename = dataobject.fh.name
+        self.filter_pipeline = dataobject.filter_pipeline
+        self.shape = dataobject.shape
+        self.rank = len(self.shape)
+        self._msg_offset = dataobject.msg_offset
+        self._unique = (self._filename, self.shape, self._msg_offset)
+
+        if dataobject.dtype == ('REFERENCE', 8):
+            # this may not behave the same as h5py, do we care? #FIXME
+            self.dtype = dataobject.dtype
+        else:
+            self.dtype = np.dtype(dataobject.dtype)
 
         self.index =  None
-        # Should we read this at instantiation?
-        # I figure yes, given folks will likely only
-        # go this low if they want to manipulate chunks.
-        # Otherwise we'd call the (cached) build routine on
-        # each chunk manipulation. That could be a lot of
-        # empty function calls, even if they are cheap cf I/O. 
-        self.__build_index()
+        
+        # This reads the b-tree and caches it in a form suitable for use with
+        # the zarr indexer we use to lazily get chunks.
+
+        self.__build_index(dataobject)
 
     def __hash__(self):
-        """ 
-        H5py says this is hashable, we haven't implemented that.
+        """ The hash is based on assuming the file path, the location
+        of the data in the file, and the data shape are a unique
+        combination.
         """
-        raise NotImplementedError
+        return hash(self.unique)
         
     def __eq__(self, other):
         """
-        H5Py says that equality is determined by true HDF5 identity.
+        Equality is based on the filename, location of the data in the file
+        and the shape of the data.
         """
-        # We kick that upstairs. 
-        return self.parent_object == other.parent_object
-
-    @property
-    def shape(self):
-        return self.parent_object.shape
-    @property
-    def rank(self):
-        return self.parent_object.rank
-    @property
-    def dtype(self):
-        # FIXME: Not sure what H5Py is doing here need to find out,
-        # but I'm sure it's not this.
-        if self.parent_object.dtype == ('REFERENCE', 8):
-            return self.parent_object.dtype
-        else:
-            return np.dtype(self.parent_object.dtype)
+        return self._unique == other._unique
     
+
     def get_chunk_info(self, index):
         """
         Retrieve storage information about a chunk specified by its index.
@@ -97,7 +97,7 @@ class H5Dataset:
     # third parties to use them. They are not H5Py methods.
     ######
 
-    def __build_index(self):
+    def __build_index(self, dataobject):
         """ 
         Build the chunk index if it doesn't exist
         """
@@ -106,7 +106,7 @@ class H5Dataset:
             return
         
         chunk_btree = BTreeV1RawDataChunks(
-                self._fh, self.parent_object._chunk_address, self.parent_object._chunk_dims)
+                dataobject.fh, dataobject._chunk_address, dataobject._chunk_dims)
         
         self.index = {}
         # we do this to avoid either using an iterator or many 
@@ -144,44 +144,58 @@ class H5Dataset:
     
         array = ZarrArrayStub(self.shape, self._chunks)
         indexer = OrthogonalIndexer(args, array) 
-        for chunk_coords, chunk_selection, out_selection in indexer:
+        for _, _, out_selection in indexer:
             yield convert_selection(out_selection)
     
     def _get_raw_chunk(self, storeinfo):
         """ 
         Obtain the bytes associated with a chunk.
         """
-        self._fh.seek(storeinfo.byte_offset)
-        return self._fh.read(storeinfo.size) 
-
-    def _get_reference_chunks(self, offset):
-        """ 
-        Return reference data which is chunked. At the moment
-        we re-read the b-tree to do this, since we didn't cache
-        it at index construction. #FIXME
-        """
-        chunk_btree = BTreeV1RawDataChunks(
-            self._fh, self.parent_object._chunk_address, self.parent_object._chunk_dims)
-        return chunk_btree.construct_data_from_chunks(
-            self._chunks, self.shape, self.dtype, self.filter_pipeline) 
+        with open(self._filename,'rb') as open_file:
+            open_file.seek(storeinfo.byte_offset)
+            return open_file.read(storeinfo.size) 
 
     def _get_selection_via_chunks(self, args):
         """
         Use the zarr orthogonal indexer to extract data for a specfic selection within
         the dataset array and in doing so, only load the relevant chunks.
         """
+        # need a local dtype as we may override it for a reference read.
+        dtype = self.dtype
+
+        if isinstance(self.dtype, tuple): 
+            # this is a reference and we're returning that
+            true_dtype = tuple(dtype)
+            dtype_class = dtype[0]
+            if dtype_class == 'REFERENCE':
+                size = dtype[1]
+                if size != 8:
+                    raise NotImplementedError('Unsupported Reference type')
+                dtype = '<u8'
+            else:
+                raise NotImplementedError('datatype not implemented')
+        else:
+            true_dtype = None
 
         array = ZarrArrayStub(self.shape, self._chunks)
         indexer = OrthogonalIndexer(args, array) 
         out_shape = indexer.shape
-        out = np.empty(out_shape, dtype=self.dtype, order=self._order)
+        out = np.empty(out_shape, dtype=dtype, order=self._order)
 
         for chunk_coords, chunk_selection, out_selection in indexer:
             chunk_coords = tuple(map(mul, chunk_coords, self._chunks))
             filter_mask, chunk_buffer = self.read_direct_chunk(chunk_coords)
             if self.filter_pipeline is not None:
                 chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, self.filter_pipeline, self.dtype.itemsize)
-            chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
+            chunk_data = np.frombuffer(chunk_buffer, dtype=dtype)
             out[out_selection] = chunk_data.reshape(self._chunks, order=self._order)[chunk_selection]
+       
+        if true_dtype is not None:
+            # no idea if this is going to work!
+            if dtype_class == 'REFERENCE':
+                to_reference = np.vectorize(Reference)
+                out = to_reference(out)
+            else:
+                raise NotImplementedError('datatype not implemented')
 
         return out

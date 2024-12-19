@@ -648,8 +648,7 @@ class DatasetDataObject(DataObjects):
         Represents a PyFive approximation of an HDF5 dataset identifier.
         Objects of this class provides methods for working directly with chunked data.
         """
-        # When instantiated self._id is None, this property is called when the
-        # class instance is first used in anger to actually get the chunk indices etc 
+        # We want to make sure that this is lazy and cached
         if self._id is None:
             self._get_chunk_params()
             self._id = H5Dataset(self)
@@ -667,10 +666,12 @@ class DatasetDataObject(DataObjects):
         if self.layout_class == 2:  # chunked storage
             # If the dtype is a tuple, we don't really know how to deal with it chunk by chunk in this version
             if isinstance(self.dtype, tuple):
-                return self.id._get_reference_chunks(self.msg_offset)[args]
+                # references need to read all the chunks for now
+                return self.id._get_selection_via_chunks(())[args]
             else:
+                # this is lazily reading only the chunks we need
                 return self.id._get_selection_via_chunks(args)
-
+            
     def _get_data_message_properties(self, msg_offset):
         """ Return the message properties of the DataObject. """
         dims, layout_class, property_offset = None, None, None
