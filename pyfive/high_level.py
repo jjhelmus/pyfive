@@ -9,7 +9,7 @@ import warnings
 import numpy as np
 
 from pyfive.core import Reference
-from pyfive.dataobjects import DataObjects, DatasetDataObject
+from pyfive.dataobjects import DataObjects, DatasetID, DatasetDataObject
 from pyfive.misc_low_level import SuperBlock
 
 
@@ -91,7 +91,8 @@ class Group(Mapping):
         if dataobjs.is_dataset:
             if additional_obj != '.':
                 raise KeyError('%s is a dataset, not a group' % (obj_name))
-            return Dataset(obj_name, DatasetDataObject(self.file._fh, link_target), self)
+            #return Dataset(obj_name, DatasetDataObject(self.file._fh, link_target), self)
+            return Dataset(obj_name, DatasetID(dataobjs), self)
        
         try:
             # if true, this may well raise a NotImplementedError, if so, we need
@@ -277,23 +278,21 @@ class Dataset(object):
 
     """
 
-    def __init__(self, name, dataobjects, parent):
+    def __init__(self, name, datasetid, parent):
         """ initalize. """
         self.parent = parent
         self.file = parent.file
         self.name = name
-
-        self._dataobjects = dataobjects
         self._attrs = None
         self._astype = None
-        self._id = None
+        self.id=datasetid
 
     def __repr__(self):
         info = (os.path.basename(self.name), self.shape, self.dtype)
         return '<HDF5 dataset "%s": shape %s, type "%s">' % info
 
     def __getitem__(self, args):
-        data = self._dataobjects.get_data(args)
+        data = self.id.get_data(args)
         if self._astype is None:
             return data
         return data.astype(self._astype)
@@ -325,22 +324,16 @@ class Dataset(object):
     def iter_chunks(self, *args):
         return self._dataobjects.id._iter_chunks(args)
     
-    @property
-    def id(self):
-        # we want to make sure that this is lazy and cached
-        if self._id is None:
-            self._id = self._dataobjects.id
-        return self._id
 
     @property
     def shape(self):
         """ shape attribute. """
-        return self._dataobjects.shape
+        return self.id.shape
     
     @property
     def maxshape(self):
         """ maxshape attribute. (None for unlimited dimensions) """
-        return self._dataobjects.maxshape
+        return self.id._meta.maxshape
 
     @property
     def ndim(self):
@@ -351,7 +344,7 @@ class Dataset(object):
     def dtype(self):
         """ dtype attribute. """
         try:
-            return np.dtype(self._dataobjects.dtype)
+            return np.dtype(self.id.dtype)
         except NotImplementedError as e:
             raise NotImplementedError(f'{e} (for {self.name})')
 
@@ -370,17 +363,17 @@ class Dataset(object):
     @property
     def chunks(self):
         """ chunks attribute. """
-        return self._dataobjects.chunks
+        return self.id.chunks
 
     @property
     def compression(self):
         """ compression attribute. """
-        return self._dataobjects.compression
+        return self.id._meta.compression
 
     @property
     def compression_opts(self):
         """ compression_opts attribute. """
-        return self._dataobjects.compression_opts
+        return self.id._meta.compression_opts
 
     @property
     def scaleoffset(self):
@@ -390,17 +383,17 @@ class Dataset(object):
     @property
     def shuffle(self):
         """ shuffle attribute. """
-        return self._dataobjects.shuffle
+        return self.id._meta.shuffle
 
     @property
     def fletcher32(self):
         """ fletcher32 attribute. """
-        return self._dataobjects.fletcher32
+        return self.id._meta.fletcher32
 
     @property
     def fillvalue(self):
         """ fillvalue attribute. """
-        return self._dataobjects.fillvalue
+        return self.id._meta.fillvalue
 
     @property
     def dims(self):
@@ -410,9 +403,8 @@ class Dataset(object):
     @property
     def attrs(self):
         """ attrs attribute. """
-        if self._attrs is None:
-            self._attrs = self._dataobjects.get_attributes()
-        return self._attrs
+        return self.id._meta.attributes
+     
 
 
 class DimensionManager(Sequence):
