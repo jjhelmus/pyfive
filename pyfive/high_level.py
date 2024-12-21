@@ -277,6 +277,7 @@ class Dataset(object):
         Group instance containing this dataset.
 
     """
+    
 
     def __init__(self, name, datasetid, parent):
         """ initalize. """
@@ -286,6 +287,12 @@ class Dataset(object):
         self._attrs = None
         self._astype = None
         self.id=datasetid
+
+        #horrible kludge for now,
+        #https://github.com/NCAS-CMS/pyfive/issues/13#issuecomment-2557121461
+        #we hide stuff we need here
+        self._dataobjects = self.id._meta
+   
 
     def __repr__(self):
         info = (os.path.basename(self.name), self.shape, self.dtype)
@@ -322,7 +329,7 @@ class Dataset(object):
         return self.shape[0]
     
     def iter_chunks(self, *args):
-        return self._dataobjects.id._iter_chunks(args)
+        return self.id.iter_chunks(args)
     
 
     @property

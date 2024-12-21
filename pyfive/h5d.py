@@ -19,7 +19,7 @@ class DatasetID:
     chunked data, lazily or not. This class has been deliberately implemented in
     such as way so as to cache all the relevant metadata, so that once you have an 
     instance, it is completely independent of the parent file, and it can be used 
-    efficiently in distributed threads without rereading the btree etc.
+    efficiently in distributed threads without thread contention to the b-tree etc.
     """
     def __init__(self, dataobject):
         """ 
@@ -34,7 +34,7 @@ class DatasetID:
         self.shape = dataobject.shape
         self.rank = len(self.shape)
         self.chunks = dataobject.chunks
-
+        
         self._msg_offset, self.layout_class,self.property_offset = dataobject.get_id_storage_params()
         self._unique = (self._filename, self.shape, self._msg_offset)
 
@@ -45,7 +45,7 @@ class DatasetID:
             # not a posix file on a posix filesystem
             self.avoid_mmap = True
 
-        if dataobject.dtype == ('REFERENCE', 8):
+        if isinstance(dataobject.dtype,tuple):
             # this may not behave the same as h5py, do we care? #FIXME
             self.dtype = dataobject.dtype
         else:
@@ -221,11 +221,10 @@ class DatasetID:
                 if size != 8:
                     raise NotImplementedError('Unsupported Reference type - size {size}')
                 with open(self._filename,'rb') as open_file:
-                    view = np.memmap(
-                        self.fh, dtype=('<u8'), mode='c', offset=self.data_offset,
+                    ref_addresses = np.memmap(
+                        open_file, dtype=('<u8'), mode='c', offset=self.data_offset,
                         shape=self.shape, order=self._order)
-                    ref_addresses = view[args]
-                    np.array([Reference(addr) for addr in ref_addresses])[args]
+                    return np.array([Reference(addr) for addr in ref_addresses])[args]
             else:
                 raise NotImplementedError('datatype not implemented - {dtype_class}')
 
@@ -319,3 +318,8 @@ class DatasetMeta:
         self.fletcher32 = dataobject.fletcher32
         self.fillvalue = dataobject.fillvalue
         self.attributes = dataobject.get_attributes()
+
+        #horrible kludge for now, this isn't really the same sort of thing
+        #https://github.com/NCAS-CMS/pyfive/issues/13#issuecomment-2557121461
+        # this is used directly in the Dataset init method.
+        self.offset = dataobject.offset

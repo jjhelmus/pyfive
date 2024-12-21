@@ -326,7 +326,9 @@ class DataObjects(object):
         if GZIP_DEFLATE_FILTER in self._filter_ids:
             gzip_entry = [d for d in self.filter_pipeline
                           if d['filter_id'] == GZIP_DEFLATE_FILTER][0]
-            return gzip_entry['client_data'][0]
+            #raise ValueError(f'gzip_entry {gzip_entry.keys()}')
+            key = {0:'client_data_values',1:'client_data'}['client_data' in gzip_entry]
+            return gzip_entry[key][0]
         return None
 
     @property
