@@ -9,7 +9,7 @@ import warnings
 import numpy as np
 
 from pyfive.core import Reference
-from pyfive.dataobjects import DataObjects, DatasetID, DatasetDataObject
+from pyfive.dataobjects import DataObjects, DatasetID
 from pyfive.misc_low_level import SuperBlock
 
 
@@ -91,7 +91,6 @@ class Group(Mapping):
         if dataobjs.is_dataset:
             if additional_obj != '.':
                 raise KeyError('%s is a dataset, not a group' % (obj_name))
-            #return Dataset(obj_name, DatasetDataObject(self.file._fh, link_target), self)
             return Dataset(obj_name, DatasetID(dataobjs), self)
        
         try:
