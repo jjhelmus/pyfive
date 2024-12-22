@@ -6,6 +6,8 @@ from pyfive.btree import BTreeV1RawDataChunks
 from pyfive.core import Reference, UNDEFINED_ADDRESS
 from io import UnsupportedOperation
 import struct
+import logging
+from importlib.metadata import version
 
 StoreInfo = namedtuple('StoreInfo',"chunk_offset filter_mask byte_offset size")
 
@@ -167,12 +169,19 @@ class DatasetID:
 
     def _build_index(self, dataobject):
         """ 
-        Build the chunk index if it doesn't exist
+        Build the chunk index if it doesn't exist. This is only 
+        called for chunk data, and only when the variable is accessed.
+        That is, it is not called when we an open a file, or when
+        we list the variables in a file, but only when we do
+        v = open_file['var_name'] where 'var_name' is chunked.
+
         """
         
         if self._index is not None: 
             return
         
+        logging.info(f'Building chunk index in pyfive {version}')
+       
         chunk_btree = BTreeV1RawDataChunks(
                 dataobject.fh, dataobject._chunk_address, dataobject._chunk_dims)
         
