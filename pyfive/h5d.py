@@ -180,7 +180,12 @@ class DatasetID:
         if self._index is not None: 
             return
         
-        logging.info(f'Building chunk index in pyfive {version}')
+        # look out for an empty dataset, which will have no btree
+        if np.prod(self.shape) == 0:
+            self._index = {}
+            return
+        
+        logging.info(f'Building chunk index in pyfive {version("pyfive")}')
        
         chunk_btree = BTreeV1RawDataChunks(
                 dataobject.fh, dataobject._chunk_address, dataobject._chunk_dims)
@@ -287,6 +292,8 @@ class DatasetID:
                 raise NotImplementedError('datatype not implemented')
         else:
             true_dtype = None
+            if np.prod(self.shape) == 0:
+                return np.zeros(self.shape)
 
         array = ZarrArrayStub(self.shape, self.chunks)
         indexer = OrthogonalIndexer(args, array) 

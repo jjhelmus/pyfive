@@ -353,6 +353,8 @@ class Dataset(object):
             return np.dtype(self.id.dtype)
         except NotImplementedError as e:
             raise NotImplementedError(f'{e} (for {self.name})')
+        except TypeError as e:
+            return self.id.dtype
 
     @property
     def value(self):

@@ -9,4 +9,4 @@ from pyfive.h5t import check_enum_dtype, check_string_dtype, check_dtype
 from pyfive.h5py import Datatype, Empty
 from importlib.metadata import version
 
-__version__ = version
+__version__ = version('pyfive')
