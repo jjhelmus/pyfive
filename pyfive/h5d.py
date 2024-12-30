@@ -26,12 +26,19 @@ class DatasetID:
     def __init__(self, dataobject):
         """ 
         Instantiated with the pyfive datasetdataobject, we copy and cache everything 
-        we want so it can be used after the parent file is closed, without needing 
-        to go back to storage.
+        we want so that the only file operations are now data accesses.
         """
 
         self._order = dataobject.order
-        self._filename = dataobject.fh.name
+        self._fh = dataobject.fh
+        try:
+            self._filename = self._fh.name
+            dataobject.fh.fileno()
+            self.avoid_mmap = False
+        except (AttributeError, OSError):
+            # maybe this is an S3File instance?
+            self._filename = self._fh.path
+            self.avoid_mmap = True
         self.filter_pipeline = dataobject.filter_pipeline
         self.shape = dataobject.shape
         self.rank = len(self.shape)
@@ -39,13 +46,6 @@ class DatasetID:
         
         self._msg_offset, self.layout_class,self.property_offset = dataobject.get_id_storage_params()
         self._unique = (self._filename, self.shape, self._msg_offset)
-
-        try:
-            dataobject.fh.fileno()
-            self.avoid_mmap = False
-        except (AttributeError,OSError):
-            # not a posix file on a posix filesystem
-            self.avoid_mmap = True
 
         if isinstance(dataobject.dtype,tuple):
             # this may not behave the same as h5py, do we care? #FIXME
@@ -219,11 +219,10 @@ class DatasetID:
                 return self._get_direct_from_contiguous(args)
             else:
                 try:
-                    with open(self._filename,'rb') as open_file:
-                        # return a memory-map to the stored array
-                        # I think this would mean that we only move the sub-array corresponding to result!
-                        view =  np.memmap(open_file, dtype=self.dtype, mode='c',
-                                    offset=self.data_offset, shape=self.shape, order=self._order)
+                    # return a memory-map to the stored array
+                    # I think this would mean that we only move the sub-array corresponding to result!
+                    view =  np.memmap(self._fh, dtype=self.dtype, mode='c',
+                                offset=self.data_offset, shape=self.shape, order=self._order)
                     result = view[args]
                     return result
                 except UnsupportedOperation:
@@ -234,11 +233,11 @@ class DatasetID:
                 size = self.dtype[1]
                 if size != 8:
                     raise NotImplementedError('Unsupported Reference type - size {size}')
-                with open(self._filename,'rb') as open_file:
-                    ref_addresses = np.memmap(
-                        open_file, dtype=('<u8'), mode='c', offset=self.data_offset,
-                        shape=self.shape, order=self._order)
-                    return np.array([Reference(addr) for addr in ref_addresses])[args]
+                
+                ref_addresses = np.memmap(
+                    self._fh, dtype=('<u8'), mode='c', offset=self.data_offset,
+                    shape=self.shape, order=self._order)
+                return np.array([Reference(addr) for addr in ref_addresses])[args]
             else:
                 raise NotImplementedError('datatype not implemented - {dtype_class}')
 
@@ -255,11 +254,11 @@ class DatasetID:
         num_bytes = num_elements*itemsize
        
         # we need it all, let's get it all (i.e. this really does read the lot)
-        with open(self._filename,'rb') as open_file:
-            open_file.seek(self.data_offset)
-            chunk_buffer = open_file.read(num_bytes)
+       
+        self._fh.seek(self.data_offset)
+        chunk_buffer = self._fh.read(num_bytes) 
         chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
-        chunk_data = chunk_data.reshape(self.shape, order=self.order)
+        chunk_data = chunk_data.reshape(self.shape, order=self._order)
         return chunk_data[args]
 
     
@@ -267,9 +266,8 @@ class DatasetID:
         """ 
         Obtain the bytes associated with a chunk.
         """
-        with open(self._filename,'rb') as open_file:
-            open_file.seek(storeinfo.byte_offset)
-            return open_file.read(storeinfo.size) 
+        self._fh.seek(storeinfo.byte_offset)
+        return self._fh.read(storeinfo.size) 
 
     def _get_selection_via_chunks(self, args):
         """
