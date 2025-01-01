@@ -2,6 +2,7 @@
 
 import io
 import os
+import h5py
 
 import numpy as np
 from numpy.testing import assert_array_equal, assert_almost_equal
@@ -57,3 +58,25 @@ def test_read_latest_fileobj():
             ref_attr6 = u'Test' + b'\xc2\xa7'.decode('utf-8')
             assert dset3.attrs['attr6'] == ref_attr6
             assert isinstance(dset3.attrs['attr6'], string_type)
+
+
+def write_compressed_tobytes(file_like):
+    """ Make an HDF file for testing """
+    
+    f = h5py.File(file_like, 'w', libver='earliest')
+
+    # gzip compressed dataset
+    f.create_dataset('dataset1', shape=(21, 16), chunks=(2, 2), dtype='<u2',
+        compression='gzip', shuffle=False,
+        data=np.arange(21*16).reshape(21, 16), track_times=False)
+    f.close()
+
+
+def test_iobytes():
+    tfile = io.BytesIO()
+    write_compressed_tobytes(tfile)
+    with pyfive.File(tfile) as hfile:
+        ds1 = hfile['dataset1']
+        shape = ds1.shape
+        assert shape == (21,16)
+
