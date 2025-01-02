@@ -69,6 +69,9 @@ def write_compressed_tobytes(file_like):
     f.create_dataset('dataset1', shape=(21, 16), chunks=(2, 2), dtype='<u2',
         compression='gzip', shuffle=False,
         data=np.arange(21*16).reshape(21, 16), track_times=False)
+    
+    f.create_dataset('dataset2', shape =(4,5), dtype='<u2',
+                     data=np.ones((4,5)), track_times=False)
     f.close()
 
 
@@ -76,6 +79,7 @@ def test_iobytes():
     tfile = io.BytesIO()
     write_compressed_tobytes(tfile)
     with pyfive.File(tfile) as hfile:
+        print(hfile)
         ds1 = hfile['dataset1']
         shape = ds1.shape
         assert shape == (21,16)

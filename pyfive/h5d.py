@@ -259,7 +259,7 @@ class DatasetID:
         # we need it all, let's get it all (i.e. this really does read the lot)
         self._fh.seek(self.data_offset)
         chunk_buffer = self._fh.read(num_bytes) 
-        chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
+        chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype).copy()
         chunk_data = chunk_data.reshape(self.shape, order=self._order)
         return chunk_data[args]
 
@@ -306,7 +306,7 @@ class DatasetID:
             if self.filter_pipeline is not None:
                 # FIXME: Why do I assume it's always a V1 Btree?
                 chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, self.filter_pipeline, self.dtype.itemsize)
-            chunk_data = np.frombuffer(chunk_buffer, dtype=dtype)
+            chunk_data = np.frombuffer(chunk_buffer, dtype=dtype).copy()
             out[out_selection] = chunk_data.reshape(self.chunks, order=self._order)[chunk_selection]
        
         if true_dtype is not None:
