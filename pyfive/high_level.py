@@ -196,7 +196,7 @@ class File(Group):
                 raise ValueError(
                     'File like object must have a seek method')
             self._fh = filename
-            self.filename = getattr(filename, 'name', None)
+            self.filename = getattr(filename, 'name', "None")
         else:
             self._fh = open(filename, 'rb')
             self._close = True

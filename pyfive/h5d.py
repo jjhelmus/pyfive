@@ -32,12 +32,12 @@ class DatasetID:
         self._order = dataobject.order
         self._fh = dataobject.fh
         try:
-            self._filename = self._fh.name
+            self._filename = dataobject.filename
             dataobject.fh.fileno()
             self.avoid_mmap = False
         except (AttributeError, OSError):
             # maybe this is an S3File instance?
-            self._filename = self._fh.path
+            self._filename = getattr(self._fh,'path','None')
             self.avoid_mmap = True
         self.filter_pipeline = dataobject.filter_pipeline
         self.shape = dataobject.shape
@@ -247,14 +247,16 @@ class DatasetID:
         We read the entire contiguous array, and pull out the selection (args) from that.
         This is a fallback situation if we can't use a memory map which would otherwise be lazy.
         This will normally be when we don't have a true Posix file.
+        # FIXME: We can probably make this lazy by using the indexer to work out which bytes
+        # are where ...
         """
     
         itemsize = np.dtype(self.dtype).itemsize
-        num_elements = np.prod(self.shape)
+        # need to impose type in case self.shape is () in which case numpy would return a float
+        num_elements = np.prod(self.shape, dtype=int)
         num_bytes = num_elements*itemsize
        
         # we need it all, let's get it all (i.e. this really does read the lot)
-       
         self._fh.seek(self.data_offset)
         chunk_buffer = self._fh.read(num_bytes) 
         chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype)
@@ -302,6 +304,7 @@ class DatasetID:
             chunk_coords = tuple(map(mul, chunk_coords, self.chunks))
             filter_mask, chunk_buffer = self.read_direct_chunk(chunk_coords)
             if self.filter_pipeline is not None:
+                # FIXME: Why do I assume it's always a V1 Btree?
                 chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, self.filter_pipeline, self.dtype.itemsize)
             chunk_data = np.frombuffer(chunk_buffer, dtype=dtype)
             out[out_selection] = chunk_data.reshape(self.chunks, order=self._order)[chunk_selection]
