@@ -4,11 +4,13 @@
 import pyfive
 import h5py
 import warnings
+from pathlib import Path
 
+DIRNAME = Path(__file__).parent
 
 def test_file_contents():
-    p5file = pyfive.File('h5netcdf_test.hdf5') 
-    h5file = h5py.File('h5netcdf_test.hdf5')
+    p5file = pyfive.File(DIRNAME/'h5netcdf_test.hdf5') 
+    h5file = h5py.File(DIRNAME/'h5netcdf_test.hdf5')
 
     expected_variables = [
         "foo",
