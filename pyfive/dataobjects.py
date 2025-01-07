@@ -480,6 +480,10 @@ class DataObjects(object):
 
     def _get_chunked_data(self, offset):
         """ Return data which is chunked. """
+
+        if np.prod(self.shape) == 0:
+            return np.empty(self.shape, dtype=self.dtype)
+
         self._get_chunk_params()
         chunk_btree = BTreeV1RawDataChunks(
             self.fh, self._chunk_address, self._chunk_dims)
