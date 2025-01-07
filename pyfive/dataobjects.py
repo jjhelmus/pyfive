@@ -17,6 +17,7 @@ from pyfive.core import Reference
 from pyfive.core import UNDEFINED_ADDRESS
 from pyfive.btree import BTreeV1Groups, BTreeV1RawDataChunks
 from pyfive.btree import BTreeV2GroupNames, BTreeV2GroupOrders
+from pyfive.btree import BTreeV2AttrCreationOrder, BTreeV2AttrNames
 from pyfive.btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
 from pyfive.misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap
 from pyfive.h5d import DatasetID
@@ -145,60 +146,102 @@ class DataObjects(object):
             offset = msg['offset_to_message']
             name, value = self.unpack_attribute(offset)
             attrs[name] = value
-        # TODO attributes may also be stored in objects reference in the
+        # Attributes may also be stored in objects reference in the
         # Attribute Info Message (0x0015, 21).
+        # Assume we can have both types though I suspect this is not the case
+        attr_info = self.find_msg_type(ATTRIBUTE_INFO_MSG_TYPE)
+        if attr_info:
+            more_attrs = self._get_attributes_from_attr_info(attrs, attr_info)
+            attrs.update(more_attrs)
         return attrs
+
+    def _get_attributes_from_attr_info(self, attrs, attr_info):
+        EMPTY = 18446744073709551615
+        #assume we only have one of these
+        if len(attr_info) > 1:
+            raise NotImplementedError('Multiple Attribute Info Messages not supported')
+        offset = attr_info[0]['offset_to_message']
+        data = _unpack_struct_from(ATTR_INFO_MESSAGE, self.msg_data, offset)
+        heap_address = data['fractal_heap_address']
+        # I can't find any documentation on this, but at least some 
+        # files seem to use this to indicate no attribute info.
+        if heap_address == EMPTY:
+            return {}
+        name_btree_address = data['name_btree_address']
+        order_btree_address = data['creation_order_btree_address']
+        heap = FractalHeap(self.fh, heap_address)
+        ordered = (order_btree_address is not None)
+        if ordered: 
+            btree = BTreeV2AttrCreationOrder(self.fh, order_btree_address)
+        else:
+            btree = BTreeV2AttrNames(self.fh, name_btree_address)
+        adict = dict()
+        for record in btree.iter_records():
+            data = heap.get_data_v2(record)
+            name, value = self._parse_attribute_msg(data,0)
+            adict[name] = value
+        return adict
+
 
     def unpack_attribute(self, offset):
         """ Return the attribute name and value. """
+        return self._parse_attribute_msg(self.msg_data, offset)
 
-        # read in the attribute message header
-        # See section IV.A.2.m. The Attribute Message for details
-        version = struct.unpack_from('<B', self.msg_data, offset)[0]
+
+    def _parse_attribute_msg(self, buffer, offset):
+        """
+        Unpack attribute name and value from a given buffer starting at the offset.
+        """
+
+        # Read the attribute message header
+        version = struct.unpack_from('<B', buffer, offset)[0]
         if version == 1:
-            attr_dict = _unpack_struct_from(
-                ATTR_MSG_HEADER_V1, self.msg_data, offset)
+            attr_dict = _unpack_struct_from(ATTR_MSG_HEADER_V1, buffer, offset)
             assert attr_dict['version'] == 1
             offset += ATTR_MSG_HEADER_V1_SIZE
             padding_multiple = 8
         elif version == 3:
-            attr_dict = _unpack_struct_from(
-                ATTR_MSG_HEADER_V3, self.msg_data, offset)
+            attr_dict = _unpack_struct_from(ATTR_MSG_HEADER_V3, buffer, offset)
             assert attr_dict['version'] == 3
             offset += ATTR_MSG_HEADER_V3_SIZE
-            padding_multiple = 1    # no padding
+            padding_multiple = 1  # no padding
         else:
             raise NotImplementedError(
-                "unsupported attribute message version: %i" % (version))
+                f"Unsupported attribute message version: {version}"
+            )
 
-        # read in the attribute name
+        # Read the attribute name
         name_size = attr_dict['name_size']
-        name = self.msg_data[offset:offset+name_size]
+        name = buffer[offset:offset + name_size]
         name = name.strip(b'\x00').decode('utf-8')
         offset += _padded_size(name_size, padding_multiple)
 
-        # read in the datatype information
+        # Read the datatype information
         try:
-            dtype = DatatypeMessage(self.msg_data, offset).dtype
+            dtype = DatatypeMessage(buffer, offset).dtype
         except NotImplementedError:
             warnings.warn(
-                'Attribute %s type not implemented, set to None.' % (name, ))
+                f"Attribute {name} type not implemented, set to None."
+            )
             return name, None
         offset += _padded_size(attr_dict['datatype_size'], padding_multiple)
 
-        # read in the dataspace information
-        shape, maxshape = determine_data_shape(self.msg_data, offset)
+        # Read the dataspace information
+        shape, maxshape = determine_data_shape(buffer, offset)
         items = int(np.prod(shape))
         offset += _padded_size(attr_dict['dataspace_size'], padding_multiple)
 
-        # read in the value(s)
-        value = self._attr_value(dtype, self.msg_data, items, offset)
+        # Read the value(s)
+        value = self._attr_value(dtype, buffer, items, offset)
 
         if shape == ():
             value = value[0]
         else:
             value = value.reshape(shape)
+        
         return name, value
+
+    
 
     def _attr_value(self, dtype, buf, count, offset):
         """ Retrieve an HDF5 attribute value from a buffer. """
@@ -702,6 +745,16 @@ ATTR_MSG_HEADER_V3 = OrderedDict((
     ('character_set_encoding', 'B'),
 ))
 ATTR_MSG_HEADER_V3_SIZE = _structure_size(ATTR_MSG_HEADER_V3)
+
+ATTR_INFO_MESSAGE = OrderedDict((
+    ('version','B'),
+    ('flags','B'),
+    ('maximum_creation_index','H'),
+    ('fractal_heap_address','Q'),
+    ('name_btree_address','Q'),
+    ('creation_order_btree_address','Q'),
+))
+
 
 # IV.A.1.a Version 1 Data Object Header Prefix
 OBJECT_HEADER_V1 = OrderedDict((

@@ -8,6 +8,7 @@ import numpy as np
 
 from .core import _padded_size
 from .core import _unpack_struct_from_file
+from .core import _unpack_struct_from
 from .core import Reference
 
 
@@ -440,6 +441,25 @@ class BTreeV2GroupOrders(BTreeV2):
         creationorder = struct.unpack_from("<Q", record, 0)[0]
         return {'creationorder': creationorder, 'heapid':record[8:8+7]}
 
+class BTreeV2AttrCreationOrder(BTreeV2):
+    """
+    HDF5 version 2 B-Tree storing attribute creation orders (type 9).
+    See the Type 9 Record Layout, note the different ordering from type 6.
+    """
+    NODE_TYPE = 9
+
+    def _parse_record(self, record):
+        return _unpack_struct_from(V2_BTREE_NODE_TYPE_9_LAYOUT,record)
+
+class BTreeV2AttrNames(BTreeV2):
+    """
+    HDF5 version 2 B-Tree storing attribute names (type 8).
+    """
+    NODE_TYPE = 8  
+
+    def _parse_record(self, record):
+        return _unpack_struct_from(V2_BTREE_NODE_TYPE_8_LAYOUT,record)
+
 
 # IV.A.2.l The Data Storage - Filter Pipeline message
 RESERVED_FILTER = 0
@@ -449,3 +469,20 @@ FLETCH32_FILTER = 3
 SZIP_FILTER = 4
 NBIT_FILTER = 5
 SCALEOFFSET_FILTER = 6
+
+
+# Attribute message B-Tree node types
+# haven't tested type 8 yet, not sure how to get some.
+#
+V2_BTREE_NODE_TYPE_8_LAYOUT = OrderedDict((
+    ('heapid','8s'),
+    ('flags','B'),
+    ('creationorder','I'),
+    ('namehash','I')
+))
+
+V2_BTREE_NODE_TYPE_9_LAYOUT = OrderedDict((
+    ('heapid','8s'),
+    ('flags','B'),
+    ('creationorder','I')
+))

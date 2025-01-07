@@ -32,12 +32,17 @@ class DatasetID:
         self._order = dataobject.order
         self._fh = dataobject.fh
         try:
-            self._filename = dataobject.filename
             dataobject.fh.fileno()
+            self._filename = dataobject.fh.name
             self.avoid_mmap = False
         except (AttributeError, OSError):
-            # maybe this is an S3File instance?
-            self._filename = getattr(self._fh,'path','None')
+            try:
+                # maybe this is an S3File instance?
+                self._filename = getattr(self._fh,'path')
+            except:
+                # maybe a remote https file opened as bytes?
+                # failing that, maybe a memory file, return as None
+                self._filename = getattr(self._fh,'full_name','None')
             self.avoid_mmap = True
         self.filter_pipeline = dataobject.filter_pipeline
         self.shape = dataobject.shape
