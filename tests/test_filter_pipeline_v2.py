@@ -26,3 +26,4 @@ def test_filter_pipeline_compression_opts_v2():
         d = hfile['data']
         # the point of this test is to ensure we can actually retrieve the compression opts
         x = d.compression_opts
+        assert x == 9
