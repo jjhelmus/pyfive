@@ -37,21 +37,21 @@ class DatasetID:
         """
 
         self._order = dataobject.order
-        self.__fh = dataobject.fh
+        fh = dataobject.fh
         
         try:
-            dataobject.fh.fileno()
+            fh.fileno()
             self._filename = dataobject.fh.name
             self.avoid_mmap = False
             self.pseudo_chunking_size = 0 
         except (AttributeError, OSError):
             try:
                 # maybe this is an S3File instance?
-                self._filename = getattr(self._fh,'path')
+                self._filename = getattr(fh,'path')
             except:
                 # maybe a remote https file opened as bytes?
                 # failing that, maybe a memory file, return as None
-                self._filename = getattr(self._fh,'full_name','None')
+                self._filename = getattr(fh,'full_name','None')
             self.avoid_mmap = True
             self.pseudo_chunking_size = pseudo_chunking_size_MB*1024*1024
         self.filter_pipeline = dataobject.filter_pipeline
@@ -128,7 +128,6 @@ class DatasetID:
 
 
 
-
         match self.layout_class:
             case 0:  #compact storage
                 raise NotImplementedError("Compact Storage")
@@ -142,6 +141,7 @@ class DatasetID:
                     # this is lazily reading only the chunks we need
                     return self._get_selection_via_chunks(args)
                 
+
     def iter_chunks(self, args):
         """ 
         Iterate over chunks in a chunked dataset. 
@@ -239,9 +239,11 @@ class DatasetID:
                 try:
                     # return a memory-map to the stored array
                     # I think this would mean that we only move the sub-array corresponding to result!
-                    view =  np.memmap(self._fh, dtype=self.dtype, mode='c',
+                    fh = self._fh
+                    view =  np.memmap(fh, dtype=self.dtype, mode='c',
                                 offset=self.data_offset, shape=self.shape, order=self._order)
-                    result = view[args]
+                    result = view[args].copy()
+                    fh.close()
                     return result
                 except UnsupportedOperation:
                     return self._get_direct_from_contiguous(args)
@@ -251,15 +253,19 @@ class DatasetID:
                 size = self.dtype[1]
                 if size != 8:
                     raise NotImplementedError('Unsupported Reference type - size {size}')
-                
+                fh = self._fh
                 ref_addresses = np.memmap(
-                    self._fh, dtype=('<u8'), mode='c', offset=self.data_offset,
+                    fh, dtype=('<u8'), mode='c', offset=self.data_offset,
                     shape=self.shape, order=self._order)
-                return np.array([Reference(addr) for addr in ref_addresses])[args]
+                result = np.array([Reference(addr) for addr in ref_addresses])[args]
+                fh.close()
+                return result
             else:
                 raise NotImplementedError('datatype not implemented - {dtype_class}')
 
 
+
+            
     def _get_direct_from_contiguous(self, args=None):
         """
         If pseudo_chunking_size is set, we attempt to read the contiguous data in chunks
@@ -289,8 +295,10 @@ class DatasetID:
             stride = __getstride()
        
         # we need it all, let's get it all (i.e. this really does read the lot)
-        self._fh.seek(self.data_offset)
-        chunk_buffer = self._fh.read(num_bytes) 
+        fh  = self._fh
+        fh.seek(self.data_offset)
+        chunk_buffer = fh.read(num_bytes)
+        fh.close()
         chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype).copy()
         chunk_data = chunk_data.reshape(self.shape, order=self._order)
         return chunk_data[args]
@@ -300,8 +308,11 @@ class DatasetID:
         """ 
         Obtain the bytes associated with a chunk.
         """
-        self._fh.seek(storeinfo.byte_offset)
-        return self._fh.read(storeinfo.size) 
+        fh = self._fh
+        fh.seek(storeinfo.byte_offset)
+        chunk_buffer = fh.read(storeinfo.size) 
+        fh.close()
+        return chunk_buffer
 
     def _get_selection_via_chunks(self, args):
         """
@@ -353,19 +364,14 @@ class DatasetID:
 
     @property
     def _fh(self):
-        """ 
-        When the parent file has been closed, we will need to reopen it
-        to continue to access data. This facility is provided to support
-        thread safe data access. However, now the file is open outside
-        a context manager, the user is responsible for closing it,
-        though it should get closed when the variable instance is
-        garbage collected.
+        """Return an indepdent open file handle to the parent file.
+
+        The file is open outside a context manager, so the user is
+        responsible for closing it.
+
         """
-        if self.__fh.closed:
-            self.__fh = open(self._filename, 'rb')
-        return self.__fh
-    
-    
+        return open(self._filename, 'rb')
+
 
 class DatasetMeta:
     """ 
