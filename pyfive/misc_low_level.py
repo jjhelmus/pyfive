@@ -249,42 +249,14 @@ class FractalHeap(object):
         idtype = (firstbyte >> 4) & 3  # bit 4-5
         version = firstbyte >> 6  # bit 6-7
         data_offset = 1
-        if idtype == 0: # managed
-            assert version == 0
-            nbytes = self._managed_object_offset_size
-            offset = _unpack_integer(nbytes, heapid, data_offset)
-            data_offset += nbytes
-
-            nbytes = self._managed_object_length_size
-            size = _unpack_integer(nbytes, heapid, data_offset)
-
-            return self.managed[offset:offset+size]
-        elif idtype == 1: # tiny
-            raise NotImplementedError
-        elif idtype == 2: # huge
-            raise NotImplementedError
-        else:
-            raise NotImplementedError
-
-
-    def get_data_v2(self,record):
-        """ 
-        Updated version utilises the full structure view of the
-        record, currently only used for attribute fractal heaps.
-        This is transition code.
-        """
-        firstbyte = record['flags']
-        reserved = firstbyte & 15  # bit 0-3
-        idtype = (firstbyte >> 4) & 3  # bit 4-5
-        version = firstbyte >> 6  # bit 6-7
         match idtype:
             case 0: # managed
-                if version != 0:
-                    raise ValueError('Unexpected version in fractal heap')
-                obytes = self._managed_object_offset_size
-                offset = _unpack_integer(obytes, record['heapid'],1)
-                sbytes = self._managed_object_length_size
-                size = _unpack_integer(sbytes, record['heapid'], obytes+1)
+                assert version == 0
+                nbytes = self._managed_object_offset_size
+                offset = _unpack_integer(nbytes, heapid, data_offset)
+                data_offset += nbytes
+                nbytes = self._managed_object_length_size
+                size = _unpack_integer(nbytes, heapid, data_offset)
                 return self.managed[offset:offset+size]
             case 1: # tiny
                 raise NotImplementedError
@@ -292,6 +264,7 @@ class FractalHeap(object):
                 raise NotImplementedError
             case _:
                 raise NotImplementedError
+
 
     def _min_size_integer(self, integer):
         """ Calculate the minimal required bytes to contain an integer. """

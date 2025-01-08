@@ -156,7 +156,6 @@ class DataObjects(object):
         return attrs
 
     def _get_attributes_from_attr_info(self, attrs, attr_info):
-        EMPTY = 18446744073709551615
         #assume we only have one of these
         if len(attr_info) > 1:
             raise NotImplementedError('Multiple Attribute Info Messages not supported')
@@ -165,7 +164,7 @@ class DataObjects(object):
         heap_address = data['fractal_heap_address']
         # I can't find any documentation on this, but at least some 
         # files seem to use this to indicate no attribute info.
-        if heap_address == EMPTY:
+        if heap_address == UNDEFINED_ADDRESS:
             return {}
         name_btree_address = data['name_btree_address']
         order_btree_address = data['creation_order_btree_address']
@@ -177,7 +176,7 @@ class DataObjects(object):
             btree = BTreeV2AttrNames(self.fh, name_btree_address)
         adict = dict()
         for record in btree.iter_records():
-            data = heap.get_data_v2(record)
+            data = heap.get_data(record['heapid'])
             name, value = self._parse_attribute_msg(data,0)
             adict[name] = value
         return adict
