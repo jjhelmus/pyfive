@@ -23,18 +23,27 @@ class DatasetID:
     instance, it is completely independent of the parent file, and it can be used 
     efficiently in distributed threads without thread contention to the b-tree etc.
     """
-    def __init__(self, dataobject):
+    def __init__(self, dataobject, pseudo_chunking_size_MB=4):
         """ 
         Instantiated with the pyfive datasetdataobject, we copy and cache everything 
         we want so that the only file operations are now data accesses.
+        
+        if pseudo_chunking_size_MB is set to a value greater than zero, and
+        if the storage is not local posix (and hence np.mmap is not available) then 
+        when accessing contiguous variables, we attempt to find a suitable
+        chunk shape to approximate that volume and read the contigous variable
+        as if were chunked. This is to facilitate lazy loading of partial data
+        from contiguous storage.
         """
 
         self._order = dataobject.order
-        self._fh = dataobject.fh
+        self.__fh = dataobject.fh
+        
         try:
             dataobject.fh.fileno()
             self._filename = dataobject.fh.name
             self.avoid_mmap = False
+            self.pseudo_chunking_size = 0 
         except (AttributeError, OSError):
             try:
                 # maybe this is an S3File instance?
@@ -44,6 +53,7 @@ class DatasetID:
                 # failing that, maybe a memory file, return as None
                 self._filename = getattr(self._fh,'full_name','None')
             self.avoid_mmap = True
+            self.pseudo_chunking_size = pseudo_chunking_size_MB*1024*1024
         self.filter_pipeline = dataobject.filter_pipeline
         self.shape = dataobject.shape
         self.rank = len(self.shape)
@@ -115,6 +125,9 @@ class DatasetID:
     
     def get_data(self, args):
         """ Called by the dataset getitem method """
+
+
+
 
         match self.layout_class:
             case 0:  #compact storage
@@ -249,17 +262,31 @@ class DatasetID:
 
     def _get_direct_from_contiguous(self, args=None):
         """
-        We read the entire contiguous array, and pull out the selection (args) from that.
-        This is a fallback situation if we can't use a memory map which would otherwise be lazy.
-        This will normally be when we don't have a true Posix file.
-        # FIXME: We can probably make this lazy by using the indexer to work out which bytes
-        # are where ...
+        If pseudo_chunking_size is set, we attempt to read the contiguous data in chunks
+        otherwise we have to read the entire array. This is a fallback situation if we 
+        can't use a memory map which would otherwise be lazy. This will normally be when 
+        we don't have a true Posix file. We should never end up here with compressed
+        data.
         """
+        def __getstride():
+            """ Determine an appropriate chunk and stride for a given pseudo chunk size """
+            stride = 1
+            chunk_shape = np.ones(self.rank, dtype=int)
+            for i in range(self.rank):
+                stride *= self.shape[i]
+                chunk_shape = box[:i] = self.shape[:i]
+                if stride*self.dtype.itemsize > self.pseudo_chunking_size:
+                    stride //= self.shape[i]
+                    chunk_shape = box[:i] = self.shape[:i-1]
+            return chunk_shape, stride  
     
         itemsize = np.dtype(self.dtype).itemsize
         # need to impose type in case self.shape is () in which case numpy would return a float
         num_elements = np.prod(self.shape, dtype=int)
         num_bytes = num_elements*itemsize
+
+        if self.pseudo_chunking_size:
+            stride = __getstride()
        
         # we need it all, let's get it all (i.e. this really does read the lot)
         self._fh.seek(self.data_offset)
@@ -323,6 +350,21 @@ class DatasetID:
                 raise NotImplementedError('datatype not implemented')
 
         return out
+
+    @property
+    def _fh(self):
+        """ 
+        When the parent file has been closed, we will need to reopen it
+        to continue to access data. This facility is provided to support
+        thread safe data access. However, now the file is open outside
+        a context manager, the user is responsible for closing it,
+        though it should get closed when the variable instance is
+        garbage collected.
+        """
+        if self.__fh.closed:
+            self.__fh = open(self._filename, 'rb')
+        return self.__fh
+    
     
 
 class DatasetMeta:
