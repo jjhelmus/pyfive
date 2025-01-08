@@ -34,7 +34,7 @@ def test_file_data_oustside_context():
         qsum1 = np.sum(qdata1)
 
     qdata2 = qdata[...]
-    qsum2 =  sum(qdata2)
+    qsum2 =  np.sum(qdata2)
 
     assert qsum1 == qsum2
 
