@@ -1,3 +1,7 @@
 .coverage
 .pyc
 build
+__pycache__
+*.egg-info
+.idea
+.DS_Store

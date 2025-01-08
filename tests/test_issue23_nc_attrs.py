@@ -1,9 +1,11 @@
 import pyfive
 import h5py
-import numpy as np  
+import numpy as np 
+from pathlib import Path 
 
 ## Test files provided as part of https://github.com/NCAS-CMS/pyfive/issues/23
 
+HERE = Path(__file__).parent
 
 def _compare_var_attrs(p5file, h5file):
     """ Compare attributes, which ought to bet he same thing except for the 
@@ -19,17 +21,15 @@ def _compare_var_attrs(p5file, h5file):
             else:
                 assert v == vv
 
-
-
 def test_A_works():
     """ This file behaves."""
-    with pyfive.File('tests/data/issue23_A.nc') as hfile:
+    with pyfive.File(HERE/'data/issue23_A.nc') as hfile:
 
         file_attrs = hfile.attrs
         q_attrs = hfile['q'].attrs
 
 
-    with h5py.File('tests/data/issue23_A.nc') as hfile:
+    with h5py.File(HERE/'data/issue23_A.nc') as hfile:
 
         file_attrs2 = dict(hfile.attrs)
         q_attrs2 = dict(hfile['q'].attrs)
@@ -43,12 +43,12 @@ def test_A_works():
 def test_B_fails():
     """ This file fails """
 
-    with pyfive.File('tests/data/issue23_B.nc') as hfile:
+    with pyfive.File(HERE/'data/issue23_B.nc') as hfile:
 
         file_attrs = hfile.attrs
         t_attrs = hfile['tas'].attrs
 
-    with h5py.File('tests/data/issue23_B.nc') as hfile:
+    with h5py.File(HERE/'data/issue23_B.nc') as hfile:
 
         file_attrs2 = dict(hfile.attrs)
         t_attrs2 = dict(hfile['tas'].attrs)
