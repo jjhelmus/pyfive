@@ -51,7 +51,7 @@ class DatasetID:
             # Has a file descriptor => Posix
             self.posix = True
             self._filename = fh.name
-            
+
         self.filter_pipeline = dataobject.filter_pipeline
         self.shape = dataobject.shape
         self.rank = len(self.shape)
@@ -228,12 +228,13 @@ class DatasetID:
             return np.zeros(self.shape, dtype=self.dtype)[args]
 
         if not isinstance(self.dtype, tuple):
-            if not self.posix: #self.avoid_mmap:
+            if not self.posix:
                 return self._get_direct_from_contiguous(args)
             else:
                 try:
                     # return a memory-map to the stored array
-                    # I think this would mean that we only move the sub-array corresponding to result!
+                    # I think this would mean that we only move the
+                    # sub-array corresponding to result!
                     fh = self._fh
                     view =  np.memmap(fh, dtype=self.dtype, mode='c',
                                 offset=self.data_offset, shape=self.shape, order=self._order)
