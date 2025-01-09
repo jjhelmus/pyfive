@@ -34,10 +34,12 @@ class DatasetID:
         fh = dataobject.fh
         
         try:
+            # See if 'fh' an underlying file descriptor
             fh.fileno()
-            self._filename = dataobject.fh.name
-            self.avoid_mmap = False 
         except (AttributeError, OSError):
+            #  No file descriptor => Not Posix
+            self.posix = False
+            self.__fh = fh
             try:
                 # maybe this is an S3File instance?
                 self._filename = getattr(fh,'path')
@@ -45,7 +47,11 @@ class DatasetID:
                 # maybe a remote https file opened as bytes?
                 # failing that, maybe a memory file, return as None
                 self._filename = getattr(fh,'full_name','None')
-            self.avoid_mmap = True
+        else:
+            # Has a file descriptor => Posix
+            self.posix = True
+            self._filename = fh.name
+            
         self.filter_pipeline = dataobject.filter_pipeline
         self.shape = dataobject.shape
         self.rank = len(self.shape)
@@ -222,7 +228,7 @@ class DatasetID:
             return np.zeros(self.shape, dtype=self.dtype)[args]
 
         if not isinstance(self.dtype, tuple):
-            if self.avoid_mmap:
+            if not self.posix: #self.avoid_mmap:
                 return self._get_direct_from_contiguous(args)
             else:
                 try:
@@ -231,9 +237,9 @@ class DatasetID:
                     fh = self._fh
                     view =  np.memmap(fh, dtype=self.dtype, mode='c',
                                 offset=self.data_offset, shape=self.shape, order=self._order)
-                    result = view[args].copy()
-                    fh.close()
-                    return result
+                    return view[args].copy()
+#                    fh.close()
+#                    return result
                 except UnsupportedOperation:
                     return self._get_direct_from_contiguous(args)
         else:
@@ -246,9 +252,9 @@ class DatasetID:
                 ref_addresses = np.memmap(
                     fh, dtype=('<u8'), mode='c', offset=self.data_offset,
                     shape=self.shape, order=self._order)
-                result = np.array([Reference(addr) for addr in ref_addresses])[args]
-                fh.close()
-                return result
+                return np.array([Reference(addr) for addr in ref_addresses])[args]
+#                fh.close()
+#                return result
             else:
                 raise NotImplementedError('datatype not implemented - {dtype_class}')
 
@@ -270,7 +276,7 @@ class DatasetID:
         fh  = self._fh
         fh.seek(self.data_offset)
         chunk_buffer = fh.read(num_bytes)
-        fh.close()
+#        fh.close()
         chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype).copy()
         chunk_data = chunk_data.reshape(self.shape, order=self._order)
         return chunk_data[args]
@@ -282,9 +288,9 @@ class DatasetID:
         """
         fh = self._fh
         fh.seek(storeinfo.byte_offset)
-        chunk_buffer = fh.read(storeinfo.size) 
-        fh.close()
-        return chunk_buffer
+        return fh.read(storeinfo.size) 
+#        fh.close()
+#        return chunk_buffer
 
     def _get_selection_via_chunks(self, args):
         """
@@ -342,7 +348,15 @@ class DatasetID:
         responsible for closing it.
 
         """
-        return open(self._filename, 'rb')
+        if self.posix:
+            # Posix
+            return open(self._filename, 'rb')
+
+        # Not posix
+        if self.__fh.closed:
+            self.__fh = open(self._filename, 'rb')
+            
+        return self.__fh
 
 
 class DatasetMeta:
