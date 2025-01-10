@@ -34,7 +34,7 @@ class DatasetID:
         fh = dataobject.fh
         
         try:
-            # See if 'fh' an underlying file descriptor
+            # See if 'fh' is an underlying file descriptor
             fh.fileno()
         except (AttributeError, OSError):
             #  No file descriptor => Not Posix
@@ -135,7 +135,6 @@ class DatasetID:
                 else:
                     # this is lazily reading only the chunks we need
                     return self._get_selection_via_chunks(args)
-                
 
     def iter_chunks(self, args):
         """ 
@@ -232,15 +231,13 @@ class DatasetID:
                 return self._get_direct_from_contiguous(args)
             else:
                 try:
-                    # return a memory-map to the stored array
+                    # Return a memory-map to the stored array.
                     # I think this would mean that we only move the
                     # sub-array corresponding to result!
                     fh = self._fh
-                    view =  np.memmap(fh, dtype=self.dtype, mode='c',
+                    view = np.memmap(fh, dtype=self.dtype, mode='c',
                                 offset=self.data_offset, shape=self.shape, order=self._order)
-                    return view[args].copy()
-#                    fh.close()
-#                    return result
+                    return view[args]
                 except UnsupportedOperation:
                     return self._get_direct_from_contiguous(args)
         else:
@@ -254,8 +251,6 @@ class DatasetID:
                     fh, dtype=('<u8'), mode='c', offset=self.data_offset,
                     shape=self.shape, order=self._order)
                 return np.array([Reference(addr) for addr in ref_addresses])[args]
-#                fh.close()
-#                return result
             else:
                 raise NotImplementedError('datatype not implemented - {dtype_class}')
 
@@ -274,10 +269,9 @@ class DatasetID:
         num_bytes = num_elements*itemsize
        
         # we need it all, let's get it all (i.e. this really does read the lot)
-        fh  = self._fh
+        fh = self._fh
         fh.seek(self.data_offset)
         chunk_buffer = fh.read(num_bytes)
-#        fh.close()
         chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype).copy()
         chunk_data = chunk_data.reshape(self.shape, order=self._order)
         return chunk_data[args]
@@ -290,8 +284,6 @@ class DatasetID:
         fh = self._fh
         fh.seek(storeinfo.byte_offset)
         return fh.read(storeinfo.size) 
-#        fh.close()
-#        return chunk_buffer
 
     def _get_selection_via_chunks(self, args):
         """
@@ -350,14 +342,17 @@ class DatasetID:
 
         """
         if self.posix:
-            # Posix
+            # Posix: Open the file, without caching it.
             return open(self._filename, 'rb')
 
-        # Not posix
-        if self.__fh.closed:
-            self.__fh = open(self._filename, 'rb')
+        # Not posix: Use the cached file if it's open, otherwise open
+        #            the file and cache it.
+        fh = self.__fh
+        if fh.closed:
+            fh = open(self._filename, 'rb')
+            self.__fh = fh
             
-        return self.__fh
+        return fh
 
 
 class DatasetMeta:
