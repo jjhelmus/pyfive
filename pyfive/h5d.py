@@ -231,13 +231,12 @@ class DatasetID:
                 return self._get_direct_from_contiguous(args)
             else:
                 try:
-                    # Return a memory-map to the stored array.
-                    # I think this would mean that we only move the
-                    # sub-array corresponding to result!
-                    fh = self._fh
-                    view = np.memmap(fh, dtype=self.dtype, mode='c',
+                    # return a memory-map to the stored array
+                    # I think this would mean that we only move the sub-array corresponding to result!
+                    view =  np.memmap(self._fh, dtype=self.dtype, mode='c',
                                 offset=self.data_offset, shape=self.shape, order=self._order)
-                    return view[args]
+                    result = view[args]
+                    return result
                 except UnsupportedOperation:
                     return self._get_direct_from_contiguous(args)
         else:
@@ -246,17 +245,13 @@ class DatasetID:
                 size = self.dtype[1]
                 if size != 8:
                     raise NotImplementedError('Unsupported Reference type - size {size}')
-                fh = self._fh
                 ref_addresses = np.memmap(
-                    fh, dtype=('<u8'), mode='c', offset=self.data_offset,
+                    self._fh, dtype=('<u8'), mode='c', offset=self.data_offset,
                     shape=self.shape, order=self._order)
                 return np.array([Reference(addr) for addr in ref_addresses])[args]
             else:
                 raise NotImplementedError('datatype not implemented - {dtype_class}')
 
-
-
-            
     def _get_direct_from_contiguous(self, args=None):
         """
         This is a fallback situation if we can't use a memory map which would otherwise be lazy. 
@@ -335,10 +330,14 @@ class DatasetID:
 
     @property
     def _fh(self):
-        """Return an indepdent open file handle to the parent file.
+        """Return an open file handle to the parent file.
 
-        The file is open outside a context manager, so the user is
-        responsible for closing it.
+        When the parent file has been closed, we will need to reopen it
+        to continue to access data. This facility is provided to support
+        thread safe data access. However, now the file is open outside
+        a context manager, the user is responsible for closing it,
+        though it should get closed when the variable instance is
+        garbage collected.
 
         """
         if self.posix:
@@ -351,7 +350,7 @@ class DatasetID:
         if fh.closed:
             fh = open(self._filename, 'rb')
             self.__fh = fh
-            
+
         return fh
 
 
