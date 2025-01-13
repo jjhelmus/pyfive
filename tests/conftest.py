@@ -34,6 +34,9 @@ def s3_base():
     #####
     server = ThreadedMotoServer(ip_address="127.0.0.1", port=port)
     server.start()
+    # the user ID and secret key are needed when accessing a public bucket
+    # since our S3 FS and bucket are not actually on an AWS system, they can have
+    # bogus values
     if "AWS_SECRET_ACCESS_KEY" not in os.environ:
         os.environ["AWS_SECRET_ACCESS_KEY"] = "foo"
     if "AWS_ACCESS_KEY_ID" not in os.environ:
@@ -51,8 +54,20 @@ def s3fs_s3(s3_base):
     """
     Create a fully functional "virtual" S3 FileSystem compatible with fsspec/s3fs.
     Method inspired by https://github.com/fsspec/s3fs/blob/main/s3fs/tests/test_s3fs.py
+
+    The S3 FS, being AWS-like but not actually physically deployed anywhere, still needs
+    all the usual user IDs, secret keys, endpoint URLs etc; the setup makes use of the ACL=public
+    configuration (public-read, or public-read-write). Public DOES NOT mean anon=True, but rather,
+    All Users group – https://docs.aws.amazon.com/AmazonS3/latest/userguide/acl-overview.html
+    Access permission to this group allows anyone with AWS credentials to access the resource.
+    The requests need be signed (authenticated) or not.
+
+    Also, keys are encrypted using AWS-KMS
+    https://docs.aws.amazon.com/kms/latest/developerguide/overview.html
     """
     client = get_boto3_client()
+
+    # see not above about ACL=public-read
     client.create_bucket(Bucket=test_bucket_name, ACL="public-read")
 
     client.create_bucket(Bucket=versioned_bucket_name, ACL="public-read")
