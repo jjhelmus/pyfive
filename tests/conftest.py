@@ -8,6 +8,22 @@ import pytest
 from moto.moto_server.threaded_moto_server import ThreadedMotoServer
 
 
+# some spoofy server parameters
+# test parameters; don't modify these
+port = 5555
+endpoint_uri = "http://127.0.0.1:%s/" % port
+test_bucket_name = "test"
+versioned_bucket_name = "test-versioned"
+secure_bucket_name = "test-secure"
+
+def get_boto3_client():
+    from botocore.session import Session
+
+    # NB: we use the sync botocore client for setup
+    session = Session()
+    return session.create_client("s3", endpoint_url=endpoint_uri)
+
+
 @pytest.fixture(scope="module")
 def s3_base():
     # writable local S3 system
