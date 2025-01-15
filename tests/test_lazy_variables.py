@@ -5,6 +5,23 @@ import numpy as np
 
 HERE = Path(__file__).parent
 
+
+def test_file_laziness():    
+    """ Pyfive should not load the data until it is requested. """
+    with pyfive.File(HERE/'data/issue23_A.nc') as hfile:
+        variables = [v for v in hfile]
+        # we do not want to have executed a _getitem__ on any of the variables yet
+    
+    # check each member of that list is a string
+    # it is, it's just the keys of the Mapping superclass of Group
+    assert all(isinstance(v, str) for v in variables)
+
+
+
+
+
+
+
 def test_attributes_outside_context():
     """ Pyfive should be able to access attributes outside the context manager. """
     with pyfive.File(HERE/'data/issue23_A.nc') as hfile:

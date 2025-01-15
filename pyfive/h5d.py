@@ -38,6 +38,7 @@ class DatasetID:
         (Currently the only way to change this value is by explicitly using
         the set_pseudo_chunk_size method. Most users will not need to change 
         it.)
+
         """
 
         self._order = dataobject.order
@@ -48,6 +49,7 @@ class DatasetID:
             self._filename = dataobject.fh.name
             self.posix = True
             self.pseudo_chunking_size = 0 
+
         except (AttributeError, OSError):
             try:
                 # maybe this is an S3File instance?
@@ -274,6 +276,7 @@ class DatasetID:
 
     def _get_direct_from_contiguous(self, args=None, kwargs={}):
         """
+        This is a fallback situation if we can't use a memory map which would otherwise be lazy.
         If pseudo_chunking_size is set, we attempt to read the contiguous data in chunks
         otherwise we have to read the entire array. This is a fallback situation if we 
         can't use a memory map which would otherwise be lazy. This will normally be when 
@@ -396,8 +399,6 @@ class DatasetID:
 
         return out
 
-    
-
     @property
     def _fh(self):
         """ 
@@ -411,8 +412,7 @@ class DatasetID:
         if self.__fh.closed:
             self.__fh = open(self._filename, 'rb')
         return self.__fh
-    
-    
+   
 
 class DatasetMeta:
     """ 
