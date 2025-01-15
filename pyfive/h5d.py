@@ -42,24 +42,29 @@ class DatasetID:
         """
 
         self._order = dataobject.order
-        self.__fh = dataobject.fh
+        fh = dataobject.fh
         
         try:
-            dataobject.fh.fileno()
-            self._filename = dataobject.fh.name
-            self.posix = True
-            self.pseudo_chunking_size = 0 
-
+            # See if 'fh' is an underlying file descriptor
+            fh.fileno()
         except (AttributeError, OSError):
+            #  No file descriptor => Not Posix
+            self.posix = False
+            self.__fh = fh
+            self.pseudo_chunking_size = pseudo_chunking_size_MB*1024*1024
             try:
                 # maybe this is an S3File instance?
-                self._filename = getattr(self._fh,'path')
+                self._filename = getattr(fh,'path')
             except:
                 # maybe a remote https file opened as bytes?
                 # failing that, maybe a memory file, return as None
-                self._filename = getattr(self._fh,'full_name','None')
-            self.posix = False
-            self.pseudo_chunking_size = pseudo_chunking_size_MB*1024*1024
+                self._filename = getattr(fh,'full_name','None')
+        else:
+            # Has a file descriptor => Posix
+            self.posix = True
+            self._filename = fh.name
+            self.pseudo_chunking_size = 0 
+
         self.filter_pipeline = dataobject.filter_pipeline
         self.shape = dataobject.shape
         self.rank = len(self.shape)
@@ -131,7 +136,6 @@ class DatasetID:
     
     def get_data(self, args):
         """ Called by the dataset getitem method """
-
         match self.layout_class:
             case 0:  #compact storage
                 raise NotImplementedError("Compact Storage")
@@ -148,7 +152,7 @@ class DatasetID:
                 else:
                     # this is lazily reading only the chunks we need
                     return self._get_selection_via_chunks(args)
-                
+
     def iter_chunks(self, args):
         """ 
         Iterate over chunks in a chunked dataset. 
@@ -265,7 +269,6 @@ class DatasetID:
                 size = self.dtype[1]
                 if size != 8:
                     raise NotImplementedError('Unsupported Reference type - size {size}')
-                
                 ref_addresses = np.memmap(
                     self._fh, dtype=('<u8'), mode='c', offset=self.data_offset,
                     shape=self.shape, order=self._order)
@@ -274,7 +277,7 @@ class DatasetID:
                 raise NotImplementedError('datatype not implemented - {dtype_class}')
 
 
-    def _get_direct_from_contiguous(self, args=None, kwargs={}):
+    def _get_direct_from_contiguous(self, args=None):
         """
         This is a fallback situation if we can't use a memory map which would otherwise be lazy.
         If pseudo_chunking_size is set, we attempt to read the contiguous data in chunks
@@ -295,7 +298,6 @@ class DatasetID:
                     if chunk_shape[i] > 1:
                         chunk_shape[i] //= 2
                         break
-               
             return chunk_shape, chunk_size
 
         class LocalOffset:
@@ -306,8 +308,8 @@ class DatasetID:
             def coord_to_offset(self,chunk_coords):
                 linear_offset = sum(idx * stride for idx, stride in zip(chunk_coords, self.chunk_strides))
                 return linear_offset*self.stride
-
-    
+              
+        fh = self._fh
         if self.pseudo_chunking_size:
             chunk_shape, stride = __get_pseudo_shape()
             offset_finder = LocalOffset(self.shape,chunk_shape,stride)
@@ -319,8 +321,8 @@ class DatasetID:
 
             for chunk_coords, chunk_selection, out_selection in indexer:
                 index = self.data_offset + offset_finder.coord_to_offset(chunk_coords)
-                self._fh.seek(index)
-                chunk_buffer = self._fh.read(stride)
+                fh.seek(index)
+                chunk_buffer = fh.read(stride)
                 chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype).copy()
                 if len(chunk_data) < chunk_size:
                     # last chunk over end of file
@@ -330,26 +332,28 @@ class DatasetID:
                 out[out_selection] = chunk_data.reshape(chunk_shape, order=self._order)[chunk_selection]
     
             return out
-       
+
         else:
             itemsize = np.dtype(self.dtype).itemsize
             num_elements = np.prod(self.shape, dtype=int)
             num_bytes = num_elements*itemsize
 
             # we need it all, let's get it all (i.e. this really does read the lot)
-            self._fh.seek(self.data_offset)
-            chunk_buffer = self._fh.read(num_bytes) 
+            fh.seek(self.data_offset)
+            chunk_buffer = fh.read(num_bytes) 
             chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype).copy()
             chunk_data = chunk_data.reshape(self.shape, order=self._order)
             return chunk_data[args]
+
 
     
     def _get_raw_chunk(self, storeinfo):
         """ 
         Obtain the bytes associated with a chunk.
         """
-        self._fh.seek(storeinfo.byte_offset)
-        return self._fh.read(storeinfo.size) 
+        fh = self._fh
+        fh.seek(storeinfo.byte_offset)
+        return fh.read(storeinfo.size) 
 
     def _get_selection_via_chunks(self, args):
         """
@@ -401,18 +405,31 @@ class DatasetID:
 
     @property
     def _fh(self):
-        """ 
+        """Return an open file handle to the parent file.
+
         When the parent file has been closed, we will need to reopen it
         to continue to access data. This facility is provided to support
         thread safe data access. However, now the file is open outside
         a context manager, the user is responsible for closing it,
         though it should get closed when the variable instance is
         garbage collected.
+
         """
-        if self.__fh.closed:
-            self.__fh = open(self._filename, 'rb')
-        return self.__fh
-   
+
+        if self.posix:
+            # Posix: Open the file, without caching it.
+            return open(self._filename, 'rb')
+
+        # Not posix: Use the cached file if it's open, otherwise open
+        #            the file and cache it.
+        fh = self.__fh
+        if fh.closed:
+            fh = open(self._filename, 'rb')
+            self.__fh = fh
+
+        return fh
+
+
 
 class DatasetMeta:
     """ 
