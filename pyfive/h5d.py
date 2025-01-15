@@ -260,7 +260,7 @@ class DatasetID:
                 raise NotImplementedError('datatype not implemented - {dtype_class}')
 
 
-    def _get_direct_from_contiguous(self, args=None):
+    def _get_direct_from_contiguous(self, args=None, kwargs={}):
         """
         If pseudo_chunking_size is set, we attempt to read the contiguous data in chunks
         otherwise we have to read the entire array. This is a fallback situation if we 
@@ -274,10 +274,10 @@ class DatasetID:
             chunk_shape = np.ones(self.rank, dtype=int)
             for i in range(self.rank):
                 stride *= self.shape[i]
-                chunk_shape = box[:i] = self.shape[:i]
+                chunk_shape = self.shape[:i]
                 if stride*self.dtype.itemsize > self.pseudo_chunking_size:
                     stride //= self.shape[i]
-                    chunk_shape = box[:i] = self.shape[:i-1]
+                    chunk_shape = self.shape[:i-1]
             return chunk_shape, stride  
     
         itemsize = np.dtype(self.dtype).itemsize
