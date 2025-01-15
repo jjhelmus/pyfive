@@ -60,8 +60,12 @@ def test_threadsafe_datea_accesss(s3fs_s3):
 
     # Get s3 access
     s3 = _get_s3_file(s3fs_s3, chunked_file)
-    
+
+    # Set number of iterations for checking thread safety. Need to be
+    # quite large to avoid cases where the code is not threadsafe, but
+    # still retrieves the correct data by good fortune.
     n_iterations = 1000
+    
     for ftype, filename in zip(
             ('POSIX', 'S3'),
             (posix, s3),
