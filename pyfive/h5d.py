@@ -109,14 +109,20 @@ class DatasetID:
         Retrieve storage information about a chunk specified by its index.
         Our index is in chunk space, but H5Py wants it in coordinate space.
         """
-        return self._index[self._nthindex[index]]
+        if not self._index:
+            return None
+        else:
+            return self._index[self._nthindex[index]]
 
     def get_chunk_info_by_coord(self, coordinate_index):
         """
         Retrieve information about a chunk specified by the array address of the chunk’s 
         first element in each dimension.
         """
-        return self._index[coordinate_index]
+        if not self._index:
+            return None
+        else:
+            return self._index[coordinate_index]
     
     def get_num_chunks(self):
         """ 
@@ -129,6 +135,8 @@ class DatasetID:
         Returns a tuple containing the filter_mask and the raw data storing this chunk as bytes.
         Additional arugments supported by H5Py are not supported here.
         """
+        if not self.index:
+            return None
         if chunk_position not in self._index:
             raise OSError("Chunk coordinates must lie on chunk boundaries")
         storeinfo = self._index[chunk_position]
@@ -146,6 +154,8 @@ class DatasetID:
                 else:
                     return self._get_contiguous_data(args)
             case 2:  # chunked storage
+                if not self._index:
+                    return np.zeros(self.shape, dtype=self.dtype)[args]
                 if isinstance(self.dtype, tuple):
                 # references need to read all the chunks for now
                     return self._get_selection_via_chunks(())[args]
@@ -193,7 +203,10 @@ class DatasetID:
     #### The following method can be used to set pseudo chunking size after the 
     #### file has been closed and before data transactions. This is pyfive specific
     def set_psuedo_chunk_size(self, newsize_MB):
-        """ Set pseudo chunking size for contiguous variables """
+        """ Set pseudo chunking size for contiguous variables. The default
+        value is 4 MB which should be suitable for most applications. For
+        arrays smaller than this value, no pseudo chunking is used. 
+        Larger arrays will be accessed in in roughly newsize_MB reads. """
         if self.layout_class == 1:
             if not self.posix:
                 self.pseudo_chunking_size = newsize_MB*1024*1024
@@ -221,7 +234,7 @@ class DatasetID:
             return
         
         # look out for an empty dataset, which will have no btree
-        if np.prod(self.shape) == 0:
+        if np.prod(self.shape) == 0 or dataobject._chunk_address == UNDEFINED_ADDRESS:
             self._index = {}
             return
         
