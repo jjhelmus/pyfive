@@ -6,7 +6,7 @@ import pytest
 import pyfive
 
 DIRNAME = os.path.dirname(__file__)
-ENUMVAR_HDF5_FILE = os.path.join(DIRNAME, 'enum_variable.hdf5')
+ENUMVAR_HDF5_FILE = os.path.join(DIRNAME, 'data/enum_variable.hdf5')
 
 def test_read_enum_variable():
 
