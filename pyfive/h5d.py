@@ -34,6 +34,10 @@ class DatasetID:
         chunk shape to approximate that volume and read the contigous variable
         as if were chunked. This is to facilitate lazy loading of partial data
         from contiguous storage.
+
+        (Currently the only way to change this value is by explicitly using
+        the set_pseudo_chunk_size method. Most users will not need to change 
+        it.)
         """
 
         self._order = dataobject.order
@@ -42,7 +46,7 @@ class DatasetID:
         try:
             dataobject.fh.fileno()
             self._filename = dataobject.fh.name
-            self.avoid_mmap = False
+            self.posix = True
             self.pseudo_chunking_size = 0 
         except (AttributeError, OSError):
             try:
@@ -52,7 +56,7 @@ class DatasetID:
                 # maybe a remote https file opened as bytes?
                 # failing that, maybe a memory file, return as None
                 self._filename = getattr(self._fh,'full_name','None')
-            self.avoid_mmap = True
+            self.posix = False
             self.pseudo_chunking_size = pseudo_chunking_size_MB*1024*1024
         self.filter_pipeline = dataobject.filter_pipeline
         self.shape = dataobject.shape
@@ -126,14 +130,15 @@ class DatasetID:
     def get_data(self, args):
         """ Called by the dataset getitem method """
 
-
-
-
         match self.layout_class:
             case 0:  #compact storage
                 raise NotImplementedError("Compact Storage")
             case 1:  # contiguous storage
-                return self._get_contiguous_data(args)
+                if self.data_offset == UNDEFINED_ADDRESS:
+                    # no storage is backing array, return all zeros
+                    return np.zeros(self.shape, dtype=self.dtype)[args]
+                else:
+                    return self._get_contiguous_data(args)
             case 2:  # chunked storage
                 if isinstance(self.dtype, tuple):
                 # references need to read all the chunks for now
@@ -179,6 +184,17 @@ class DatasetID:
             raise ValueError('No chunk index available for HDF layout class {self.layout}')
         else:
             return self._index
+    #### The following method can be used to set pseudo chunking size after the 
+    #### file has been closed and before data transactions. This is pyfive specific
+    def set_psuedo_chunk_size(self, newsize_MB):
+        """ Set pseudo chunking size for contiguous variables """
+        if self.layout_class == 1:
+            if not self.posix:
+                self.pseudo_chunking_size = newsize_MB*1024*1024
+            else:
+                pass  # silently ignore it, we'll be using a np.memmap
+        else:
+            raise ValueError('Attempt to set pseudo chunking on non-contigous variable')
         
     ######
     # The following DatasetID methods are used by PyFive and you wouldn't expect
@@ -227,13 +243,9 @@ class DatasetID:
                 self._index[key] = StoreInfo(key, filter_mask, addr, size)
 
     def _get_contiguous_data(self, args):
-    
-        if self.data_offset == UNDEFINED_ADDRESS:
-            # no storage is backing array, return all zeros
-            return np.zeros(self.shape, dtype=self.dtype)[args]
 
         if not isinstance(self.dtype, tuple):
-            if self.avoid_mmap:
+            if not self.posix:
                 return self._get_direct_from_contiguous(args)
             else:
                 try:
@@ -268,32 +280,65 @@ class DatasetID:
         we don't have a true Posix file. We should never end up here with compressed
         data.
         """
-        def __getstride():
+        def __get_pseudo_shape():
             """ Determine an appropriate chunk and stride for a given pseudo chunk size """
-            stride = 1
-            chunk_shape = np.ones(self.rank, dtype=int)
-            for i in range(self.rank):
-                stride *= self.shape[i]
-                chunk_shape = self.shape[:i]
-                if stride*self.dtype.itemsize > self.pseudo_chunking_size:
-                    stride //= self.shape[i]
-                    chunk_shape = self.shape[:i-1]
-            return chunk_shape, stride  
-    
-        itemsize = np.dtype(self.dtype).itemsize
-        # need to impose type in case self.shape is () in which case numpy would return a float
-        num_elements = np.prod(self.shape, dtype=int)
-        num_bytes = num_elements*itemsize
+            element_size = self.dtype.itemsize
+            chunk_shape = np.copy(self.shape)
+            while True:
+                chunk_size = np.prod(chunk_shape) * element_size
+                if chunk_size < self.pseudo_chunking_size:
+                    break
+                for i in range(len(chunk_shape)):  
+                    if chunk_shape[i] > 1:
+                        chunk_shape[i] //= 2
+                        break
+               
+            return chunk_shape, chunk_size
 
+        class LocalOffset:
+            def __init__(self, shape, chunk_shape, stride):
+                chunks_per_dim = [int(np.ceil(a / c)) for a, c in zip(shape, chunk_shape)]
+                self.chunk_strides = np.cumprod([1] + chunks_per_dim[::-1])[:-1][::-1]
+                self.stride = stride
+            def coord_to_offset(self,chunk_coords):
+                linear_offset = sum(idx * stride for idx, stride in zip(chunk_coords, self.chunk_strides))
+                return linear_offset*self.stride
+
+    
         if self.pseudo_chunking_size:
-            stride = __getstride()
+            chunk_shape, stride = __get_pseudo_shape()
+            offset_finder = LocalOffset(self.shape,chunk_shape,stride)
+            array = ZarrArrayStub(self.shape, chunk_shape)
+            indexer = OrthogonalIndexer(args, array)
+            out_shape = indexer.shape
+            out = np.empty(out_shape, dtype=self.dtype, order=self._order)
+            chunk_size = np.prod(chunk_shape)
+
+            for chunk_coords, chunk_selection, out_selection in indexer:
+                index = self.data_offset + offset_finder.coord_to_offset(chunk_coords)
+                self._fh.seek(index)
+                chunk_buffer = self._fh.read(stride)
+                chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype).copy()
+                if len(chunk_data) < chunk_size:
+                    # last chunk over end of file
+                    padded_chunk_data = np.zeros(chunk_size, dtype=self.dtype)
+                    padded_chunk_data[:len(chunk_data)] = chunk_data
+                    chunk_data = padded_chunk_data
+                out[out_selection] = chunk_data.reshape(chunk_shape, order=self._order)[chunk_selection]
+    
+            return out
        
-        # we need it all, let's get it all (i.e. this really does read the lot)
-        self._fh.seek(self.data_offset)
-        chunk_buffer = self._fh.read(num_bytes) 
-        chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype).copy()
-        chunk_data = chunk_data.reshape(self.shape, order=self._order)
-        return chunk_data[args]
+        else:
+            itemsize = np.dtype(self.dtype).itemsize
+            num_elements = np.prod(self.shape, dtype=int)
+            num_bytes = num_elements*itemsize
+
+            # we need it all, let's get it all (i.e. this really does read the lot)
+            self._fh.seek(self.data_offset)
+            chunk_buffer = self._fh.read(num_bytes) 
+            chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype).copy()
+            chunk_data = chunk_data.reshape(self.shape, order=self._order)
+            return chunk_data[args]
 
     
     def _get_raw_chunk(self, storeinfo):
@@ -350,6 +395,8 @@ class DatasetID:
                 raise NotImplementedError('datatype not implemented')
 
         return out
+
+    
 
     @property
     def _fh(self):
