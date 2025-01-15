@@ -219,9 +219,12 @@ class DataObjects(object):
         try:
             dtype = DatatypeMessage(buffer, offset).dtype
         except NotImplementedError:
-            warnings.warn(
-                f"Attribute {name} type not implemented, set to None."
-            )
+            if name == 'REFERENCE_LIST':
+                pass #suppress this one, no one actually cares about these as far as I know
+            else:
+                warnings.warn(
+                    f"Attribute {name} type not implemented, set to None."
+                )
             return name, None
         offset += _padded_size(attr_dict['datatype_size'], padding_multiple)
 
