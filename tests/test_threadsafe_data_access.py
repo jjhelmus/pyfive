@@ -73,7 +73,8 @@ def test_threadsafe_datea_accesss(s3fs_s3):
         print (f"\n{ftype} ----------------\n")
 
         # Get the file data array, on asingle thread
-        v = pyfive.File(chunked_file)['v']
+        with pyfive.File(chunked_file) as hf:
+            v = hf['v']
         print (v)
         print (f"Storage chunk size: {v.chunks}")
         array0 = v[...].view(type=np.ndarray)
