@@ -273,8 +273,9 @@ class DatasetID:
                     # Create a memory-map to the stored array, which
                     # means that we will end up only copying the
                     # sub-array into in memory.
+                    fh = self._fh
                     view =  np.memmap(
-                        self._fh,
+                        fh,
                         dtype=self.dtype,
                         mode='c',
                         offset=self.data_offset,
@@ -285,6 +286,7 @@ class DatasetID:
                     result = view[args]
                     # Copy the data from disk to physical memory
                     result = result.view(type=np.ndarray)
+                    fh.close()
                     return result
                 except UnsupportedOperation:
                     return self._get_direct_from_contiguous(args)
@@ -294,10 +296,14 @@ class DatasetID:
                 size = self.dtype[1]
                 if size != 8:
                     raise NotImplementedError('Unsupported Reference type - size {size}')
+
+                fh = self._fh
                 ref_addresses = np.memmap(
-                    self._fh, dtype=('<u8'), mode='c', offset=self.data_offset,
+                    fh, dtype=('<u8'), mode='c', offset=self.data_offset,
                     shape=self.shape, order=self._order)
-                return np.array([Reference(addr) for addr in ref_addresses])[args]
+                result = np.array([Reference(addr) for addr in ref_addresses])[args]
+                fh.close()
+                return result
             else:
                 raise NotImplementedError('datatype not implemented - {dtype_class}')
 
@@ -356,6 +362,9 @@ class DatasetID:
                     chunk_data = padded_chunk_data
                 out[out_selection] = chunk_data.reshape(chunk_shape, order=self._order)[chunk_selection]
     
+            if self.posix:
+                fh.close()
+
             return out
 
         else:
@@ -363,13 +372,20 @@ class DatasetID:
             num_elements = np.prod(self.shape, dtype=int)
             num_bytes = num_elements*itemsize
 
-            # we need it all, let's get it all (i.e. this really does read the lot)
+            # we need it all, let's get it all (i.e. this really does
+            # read the lot)
             fh.seek(self.data_offset)
             chunk_buffer = fh.read(num_bytes) 
             chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype).copy()
             chunk_data = chunk_data.reshape(self.shape, order=self._order)
-            return chunk_data[args]
+            chunk_data = chunk_data[args]
+            if self.posix:
+                fh.close()
 
+            return chunk_data
+
+        if self.posix:
+            fh.close()
 
     
     def _get_raw_chunk(self, storeinfo):
@@ -378,7 +394,11 @@ class DatasetID:
         """
         fh = self._fh
         fh.seek(storeinfo.byte_offset)
-        return fh.read(storeinfo.size) 
+        out = fh.read(storeinfo.size)
+        if self.posix:
+            fh.close()
+
+        return out
 
     def _get_selection_via_chunks(self, args):
         """
