@@ -287,7 +287,7 @@ class DatasetID:
                     shape=self.shape, order=self._order)
                 return np.array([Reference(addr) for addr in ref_addresses])[args]
             else:
-                raise NotImplementedError('datatype not implemented - {dtype_class}')
+                raise NotImplementedError(f'datatype not implemented - {dtype_class}')
 
 
     def _get_direct_from_contiguous(self, args=None):
