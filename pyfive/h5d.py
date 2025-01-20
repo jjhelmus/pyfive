@@ -265,14 +265,26 @@ class DatasetID:
 
         if not isinstance(self.dtype, tuple):
             if not self.posix:
+                # Not posix
                 return self._get_direct_from_contiguous(args)
             else:
+                # posix
                 try:
-                    # return a memory-map to the stored array
-                    # I think this would mean that we only move the sub-array corresponding to result!
-                    view =  np.memmap(self._fh, dtype=self.dtype, mode='c',
-                                offset=self.data_offset, shape=self.shape, order=self._order)
+                    # Create a memory-map to the stored array, which
+                    # means that we will end up only copying the
+                    # sub-array into in memory.
+                    view =  np.memmap(
+                        self._fh,
+                        dtype=self.dtype,
+                        mode='c',
+                        offset=self.data_offset,
+                        shape=self.shape,
+                        order=self._order
+                    )
+                    # Create the sub-array
                     result = view[args]
+                    # Copy the data from disk to physical memory
+                    result = result.view(type=np.ndarray)
                     return result
                 except UnsupportedOperation:
                     return self._get_direct_from_contiguous(args)

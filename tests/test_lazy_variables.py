@@ -56,6 +56,26 @@ def test_file_data_oustside_context():
     assert qsum1 == qsum2
 
 
+def test_numpy_array_type():
+    """Pyfive slices should always return a np.ndarray, not a np.memmap.
+
+    """
+    # Get data from contiguous file
+    with pyfive.File(HERE/'data/issue23_A_contiguous.nc') as hfile:
+        qdata = hfile['q']
+        qdata1 = qdata[...]
+        assert isinstance(qdata1, np.ndarray)
+        assert not isinstance(qdata1, np.memmap)
+
+    # Get data from chunked file
+    with pyfive.File(HERE/'data/issue23_A.nc') as hfile:
+        qdata = hfile['q']
+        qdata2 = qdata[...]
+        assert isinstance(qdata2, np.ndarray)
+        assert not isinstance(qdata2, np.memmap)
+
+    # Check that the data are equal in both cases
+    assert (qdata1 == qdata2).all()
 
 
     
