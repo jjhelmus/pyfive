@@ -286,6 +286,8 @@ class DatasetID:
                     self._fh, dtype=('<u8'), mode='c', offset=self.data_offset,
                     shape=self.shape, order=self._order)
                 return np.array([Reference(addr) for addr in ref_addresses])[args]
+            elif dtype_class == 'VLEN_STRING':
+                raise NotImplementedError('Variable length strings under construction')
             else:
                 raise NotImplementedError(f'datatype not implemented - {dtype_class}')
 
@@ -357,8 +359,6 @@ class DatasetID:
             chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype).copy()
             chunk_data = chunk_data.reshape(self.shape, order=self._order)
             return chunk_data[args]
-
-
     
     def _get_raw_chunk(self, storeinfo):
         """ 
