@@ -306,8 +306,10 @@ class DatasetID:
                     fh.close()
 
                 return result
+            elif dtype_class == 'VLEN_STRING':
+                raise NotImplementedError('Variable length strings under construction')
             else:
-                raise NotImplementedError('datatype not implemented - {dtype_class}')
+                raise NotImplementedError(f'datatype not implemented - {dtype_class}')
 
 
     def _get_direct_from_contiguous(self, args=None):
@@ -385,10 +387,6 @@ class DatasetID:
                 fh.close()
 
             return chunk_data
-
-        if self.posix:
-            fh.close()
-
     
     def _get_raw_chunk(self, storeinfo):
         """ 
