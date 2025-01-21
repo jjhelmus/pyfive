@@ -107,7 +107,6 @@ class DatasetID:
     def get_chunk_info(self, index):
         """
         Retrieve storage information about a chunk specified by its index.
-        Our index is in chunk space, but H5Py wants it in coordinate space.
         """
         if not self._index:
             return None
@@ -226,6 +225,20 @@ class DatasetID:
                 pass  # silently ignore it, we'll be using a np.memmap
         else:
             raise ValueError('Attempt to set pseudo chunking on non-contigous variable')
+
+    def get_chunk_info_from_chunk_coord(self, chunk_coords):
+        """
+        Retrieve storage information about a chunk specified by its index.
+        This index is in chunk space (as used by zarr) and needs to be converted
+        to hdf5 coordinate space.  Additionaly, if this file is not chunked, the storeinfo 
+        is returned for the contiguous data as if it were one chunk.
+        """
+        if not self._index:
+            dummy =  StoreInfo(None, None, self.data_offset, self.dtype.itemsize*np.prod(self.shape))
+            return dummy
+        else:
+            coord_index = tuple(map(mul, chunk_coords, self.chunks))
+            return self.get_chunk_info_by_coord(coord_index)
         
     ######
     # The following DatasetID methods are used by PyFive and you wouldn't expect
