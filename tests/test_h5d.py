@@ -2,16 +2,12 @@ import h5py
 import pyfive
 from pathlib import Path
 import pytest
+from operator import mul
 
 mypath = Path(__file__).parent
 filename = 'compressed.hdf5'
 variable_name = 'dataset3'
 breaking_address=(2,0)
-
-#mypath = mypath.parent/'bnl/'
-#filename = 'da193o_25_day__grid_T_198807-198807.nc'
-#variable_name = 'tos'
-# breaking_address=(2,0,3)
 
 def chunk_down(ff, vv):
     """ 
@@ -33,14 +29,18 @@ def chunk_down(ff, vv):
     return n, c.chunk_offset, c.filter_mask, c.byte_offset, c.size, d, v
 
 
-def get_chunks(ff, vv, view=0):
+def get_chunks(ff, vv):
     var = ff[vv]
     chunks = list(var.iter_chunks())
-    for i in range(view):
-        print('Chunk ',i)
-        print(chunks[i])
     return chunks
 
+def get_slices(var, using_py5):
+    """ Return suitlable test slice from var """
+    rank = len(var.shape)
+    assert rank == 2
+    slice1 = slice(2,3)
+    slice2 = slice(2,3)
+    return (slice1, slice2)
 
 def test_h5d_chunking_details():
 
@@ -52,7 +52,7 @@ def test_h5d_chunking_details():
 
     assert h5detail == p5detail 
 
-def test_iter_chunks():
+def test_iter_chunks_all():
 
     with h5py.File(mypath/filename) as f:
         h5chunks = get_chunks(f, variable_name)
@@ -62,3 +62,20 @@ def test_iter_chunks():
 
     assert h5chunks == p5chunks 
 
+def test_iter_chunks_sel():
+    """ I don't really understand what h5py is doing here, so 
+    obviously I don't have the right method in pyfive and/
+    or the right test #FIXME """
+
+    with h5py.File(mypath/filename) as f:
+        var = f[variable_name]
+        slices = get_slices(var, False)
+        h5chunks = list(var.iter_chunks(slices))
+        print(h5chunks)
+
+    with pyfive.File(mypath/filename) as g:
+        var = g[variable_name]
+        slices = get_slices(var, True)
+        p5chunks = list(var.iter_chunks(slices))
+
+    assert h5chunks == p5chunks 

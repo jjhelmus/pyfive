@@ -169,7 +169,7 @@ class DatasetID:
         The optional sel argument is a slice or tuple of slices that defines the region to be used. 
         If not set, the entire dataspace will be used for the iterator.
         For each chunk within the given region, the iterator yields a tuple of slices that gives the
-        intersection of the given chunk  with the selection area. 
+        intersection of the given chunk with the selection area. 
         This can be used to read data in that chunk.
         """
         if self.chunks is None:
@@ -177,7 +177,7 @@ class DatasetID:
         
         def convert_selection(tuple_of_slices):
             # while a slice of the form slice(a,b,None) is equivalent
-            # in funtion to a slice of form (a,b,1) it is not the same.
+            # in function to a slice of form (a,b,1) it is not the same.
             # For compatability I've gone for "the same"
             def convert_slice(aslice):
                 if aslice.step is None:
@@ -186,7 +186,19 @@ class DatasetID:
             return tuple([convert_slice(a) for a in tuple_of_slices])
     
         array = ZarrArrayStub(self.shape, self.chunks)
-        indexer = OrthogonalIndexer(args, array) 
+
+        if args:
+            # convert to getitem type args
+            converted = []
+            for s in args:
+                if isinstance(s, slice) and (s.stop - s.start) == 1:
+                    converted.append(s.start)
+                else:
+                    converted.append(s)
+            args = tuple(converted)
+            indexer = OrthogonalIndexer(*args, array) 
+        else:
+            indexer = OrthogonalIndexer(args, array) 
         for _, _, out_selection in indexer:
             yield convert_selection(out_selection)
 
@@ -244,13 +256,7 @@ class DatasetID:
                 dataobject.fh, dataobject._chunk_address, dataobject._chunk_dims)
         
         self._index = {}
-        # we do this to avoid either using an iterator or many 
-        # temporary list creations if there are repeated chunk accesses.
         self._nthindex = []
-        
-        # The zarr orthogonal indexer returns the position in chunk
-        # space, whereas pyfive wants the position in array space.
-        # Here we index the pyfive chunk_index in zarr index space.
         
         for node in chunk_btree.all_nodes[0]:
             for node_key, addr in zip(node['keys'], node['addresses']):
@@ -398,16 +404,17 @@ class DatasetID:
         out = np.empty(out_shape, dtype=dtype, order=self._order)
 
         for chunk_coords, chunk_selection, out_selection in indexer:
+            # map from chunk coordinate space to array space which is how hdf5 keeps the index
             chunk_coords = tuple(map(mul, chunk_coords, self.chunks))
             filter_mask, chunk_buffer = self.read_direct_chunk(chunk_coords)
             if self.filter_pipeline is not None:
-                # FIXME: Why do I assume it's always a V1 Btree?
+                # we are only using the class method here, future filter pipelines may need their own function
                 chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, self.filter_pipeline, self.dtype.itemsize)
             chunk_data = np.frombuffer(chunk_buffer, dtype=dtype).copy()
             out[out_selection] = chunk_data.reshape(self.chunks, order=self._order)[chunk_selection]
        
         if true_dtype is not None:
-            # no idea if this is going to work!
+            
             if dtype_class == 'REFERENCE':
                 to_reference = np.vectorize(Reference)
                 out = to_reference(out)
