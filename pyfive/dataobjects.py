@@ -19,7 +19,7 @@ from pyfive.btree import BTreeV1Groups, BTreeV1RawDataChunks
 from pyfive.btree import BTreeV2GroupNames, BTreeV2GroupOrders
 from pyfive.btree import BTreeV2AttrCreationOrder, BTreeV2AttrNames
 from pyfive.btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
-from pyfive.misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap
+from pyfive.misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap, GLOBAL_HEAP_ID
 from pyfive.h5d import DatasetID
 from pyfive.indexing import OrthogonalIndexer, ZarrArrayStub
 
@@ -686,9 +686,8 @@ class DataObjects(object):
             return True
         else:
             return False
-        
 
-        
+
 
 def determine_data_shape(buf, offset):
     """ Return the shape of the dataset pointed to in a Dataspace message. """
@@ -723,10 +722,7 @@ def determine_data_shape(buf, offset):
 # all metadata fields are stored in little-endian byte order.
 
 
-GLOBAL_HEAP_ID = OrderedDict((
-    ('collection_address', 'Q'),  # 8 byte addressing
-    ('object_index', 'I'),
-))
+
 GLOBAL_HEAP_ID_SIZE = _structure_size(GLOBAL_HEAP_ID)
 
 # IV.A.2.m The Attribute Message

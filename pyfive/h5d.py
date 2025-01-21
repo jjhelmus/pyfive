@@ -4,7 +4,9 @@ from operator import mul
 from pyfive.indexing import OrthogonalIndexer, ZarrArrayStub
 from pyfive.btree import BTreeV1RawDataChunks
 from pyfive.core import Reference, UNDEFINED_ADDRESS
+from pyfive.misc_low_level import get_vlen_string_data
 from io import UnsupportedOperation
+
 import struct
 import logging
 from importlib.metadata import version
@@ -69,6 +71,13 @@ class DatasetID:
         self.shape = dataobject.shape
         self.rank = len(self.shape)
         self.chunks = dataobject.chunks
+
+        # experimental code. We need to find out whether or not this
+        # is unnecessary duplication. At the moment it seems best for
+        # each variable to have it's own copy of those needed for 
+        # data access. Though that's clearly not optimal if they include
+        # other data. To be determined.
+        self._global_heaps={} 
         
         self._msg_offset, self.layout_class,self.property_offset = dataobject.get_id_storage_params()
         self._unique = (self._filename, self.shape, self._msg_offset)
@@ -287,7 +296,8 @@ class DatasetID:
                     shape=self.shape, order=self._order)
                 return np.array([Reference(addr) for addr in ref_addresses])[args]
             elif dtype_class == 'VLEN_STRING':
-                raise NotImplementedError('Variable length strings under construction')
+                fh = self._fh
+                return get_vlen_string_data(fh, self.data_offset, self._global_heaps, self.shape, self.dtype)
             else:
                 raise NotImplementedError(f'datatype not implemented - {dtype_class}')
 
