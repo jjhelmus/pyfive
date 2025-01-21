@@ -7,3 +7,4 @@ __pycache__/
 .DS_Store
 test-reports/
 <_io.Bytes*>
+tests/__pycache__/
