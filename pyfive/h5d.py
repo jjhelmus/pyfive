@@ -302,7 +302,9 @@ class DatasetID:
                     fh, dtype=('<u8'), mode='c', offset=self.data_offset,
                     shape=self.shape, order=self._order)
                 result = np.array([Reference(addr) for addr in ref_addresses])[args]
-                fh.close()
+                if self.posix:
+                    fh.close()
+
                 return result
             else:
                 raise NotImplementedError('datatype not implemented - {dtype_class}')
