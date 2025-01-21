@@ -12,6 +12,7 @@ from .core import _unpack_integer
 from .core import InvalidHDF5File
 from .core import UNDEFINED_ADDRESS
 from math import prod
+import numpy as np
 
 
 class SuperBlock(object):
@@ -335,8 +336,9 @@ class FractalHeap(object):
         return ndirect, nindirect
 
 def get_vlen_string_data(fh, data_offset, global_heaps, shape, dtype):
-    """ Return the data for a variable which is
-    made up of variable length string data """
+    """ Return the data for a variable which is made up of variable length string data """
+    # we need to import this from DatasetID, and that's imported from Dataobjects hence
+    # hiding it here in misc_low_level.
     fh.seek(data_offset)
     count = prod(shape)
     _, _, character_set = dtype
@@ -347,6 +349,7 @@ def get_vlen_string_data(fh, data_offset, global_heaps, shape, dtype):
         vlen_size, = struct.unpack_from('<I', buf, offset=offset)
         gheap_id = _unpack_struct_from(GLOBAL_HEAP_ID, buf, offset+4)
         gheap_address = gheap_id['collection_address']
+        print('Collection address', gheap_address)
         if gheap_address not in global_heaps:
             # load the global heap and cache the instance
             gheap = GlobalHeap(fh, gheap_address)

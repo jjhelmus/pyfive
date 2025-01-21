@@ -335,8 +335,15 @@ class DataObjects(object):
             size = 0
 
         if size:
-            payload = self.msg_data[offset:offset+size]
-            fillvalue = np.frombuffer(payload, self.dtype, count=1)[0]
+            if isinstance(self.dtype, tuple):
+                try:
+                    assert self.dtype[0] == 'VLEN_STRING'
+                except:
+                    raise ValueError('Unrecognised fill type')
+                fillvalue = self._attr_value(self.dtype, self.msg_data, 1, offset)[0]
+            else:
+                payload = self.msg_data[offset:offset+size]
+                fillvalue = np.frombuffer(payload, self.dtype, count=1)[0]
         else:
             fillvalue = 0
         return fillvalue
