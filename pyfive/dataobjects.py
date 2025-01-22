@@ -19,7 +19,7 @@ from pyfive.btree import BTreeV1Groups, BTreeV1RawDataChunks
 from pyfive.btree import BTreeV2GroupNames, BTreeV2GroupOrders
 from pyfive.btree import BTreeV2AttrCreationOrder, BTreeV2AttrNames
 from pyfive.btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
-from pyfive.misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap
+from pyfive.misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap, GLOBAL_HEAP_ID
 from pyfive.h5d import DatasetID
 from pyfive.indexing import OrthogonalIndexer, ZarrArrayStub
 
@@ -285,6 +285,7 @@ class DataObjects(object):
         # stored in the data object storage.
         gheap_id = _unpack_struct_from(GLOBAL_HEAP_ID, buf, offset+4)
         gheap_address = gheap_id['collection_address']
+        #print('Collection address in _vlen', gheap_address)
         if gheap_address not in self._global_heaps:
             # load the global heap and cache the instance
             gheap = GlobalHeap(self.fh, gheap_address)
@@ -335,8 +336,15 @@ class DataObjects(object):
             size = 0
 
         if size:
-            payload = self.msg_data[offset:offset+size]
-            fillvalue = np.frombuffer(payload, self.dtype, count=1)[0]
+            if isinstance(self.dtype, tuple):
+                try:
+                    assert self.dtype[0] == 'VLEN_STRING'
+                except:
+                    raise ValueError('Unrecognised fill type')
+                fillvalue = self._attr_value(self.dtype, self.msg_data, 1, offset)[0]
+            else:
+                payload = self.msg_data[offset:offset+size]
+                fillvalue = np.frombuffer(payload, self.dtype, count=1)[0]
         else:
             fillvalue = 0
         return fillvalue
@@ -686,9 +694,8 @@ class DataObjects(object):
             return True
         else:
             return False
-        
 
-        
+
 
 def determine_data_shape(buf, offset):
     """ Return the shape of the dataset pointed to in a Dataspace message. """
@@ -723,10 +730,7 @@ def determine_data_shape(buf, offset):
 # all metadata fields are stored in little-endian byte order.
 
 
-GLOBAL_HEAP_ID = OrderedDict((
-    ('collection_address', 'Q'),  # 8 byte addressing
-    ('object_index', 'I'),
-))
+
 GLOBAL_HEAP_ID_SIZE = _structure_size(GLOBAL_HEAP_ID)
 
 # IV.A.2.m The Attribute Message
