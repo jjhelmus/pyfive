@@ -285,7 +285,7 @@ class DataObjects(object):
         # stored in the data object storage.
         gheap_id = _unpack_struct_from(GLOBAL_HEAP_ID, buf, offset+4)
         gheap_address = gheap_id['collection_address']
-        print('Collection address in _vlen', gheap_address)
+        #print('Collection address in _vlen', gheap_address)
         if gheap_address not in self._global_heaps:
             # load the global heap and cache the instance
             gheap = GlobalHeap(self.fh, gheap_address)

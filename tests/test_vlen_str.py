@@ -4,6 +4,7 @@ import netCDF4 as nc
 import io
 import numpy as np
 import os
+import warnings
 
 def make_file_hdf5(our_file, vlen_strings):
    
@@ -52,8 +53,7 @@ def make_pathological_nc(our_file):
     s_months4 = n.createVariable("s_months4", str, ("time",))
     s_months4.long_name = "string: Four months"
     s_months4[:] = months
-    validation={'s_months4':months}
-
+    validation={'s_months4':s_months4[:]}
 
     s_months1 = n.createVariable("s_months1", str, ("dim1",))
     s_months1.long_name = "string: One month"
@@ -116,10 +116,10 @@ def test_vlen_string_hdf5(tmp_path):
     our_view = tmp_path/'h5py_vlen.txt'
     vlen_strings = ["foo","foobar"]
     make_file_hdf5(our_file, vlen_strings)
-    os.system(f'h5dump {our_file} > {our_view}')
-    with open(our_view,'r') as f:
-        for line in f.readlines():
-            print(line)
+    #os.system(f'h5dump {our_file} > {our_view}')
+    #with open(our_view,'r') as f:
+    #    for line in f.readlines():
+    #        print(line)
 
     with pyfive.File(our_file) as hfile:
          
@@ -163,22 +163,22 @@ def test_vlen_string_nc2(tmp_path):
         ds1 = hfile['months'][:]
         assert np.array_equal(m_array, ds1.astype(str))
 
-def test_pathalogical_strings(tmp_path):
+def test_pathological_strings(tmp_path):
     tfile = tmp_path/'test_strings.nc'
     validation=make_pathological_nc(tfile)
+    warnings.warn('Validation of variable length strings assumes h5py is wrong')
     with pyfive.File(tfile) as pfile:
         with h5py.File(tfile) as hfile:
             for k,v in validation.items():
                 hdata = hfile[k][...]
-                #decode_function = np.vectorize(lambda x: x.decode('utf-8'))
-                #hdata = decode_function(hdata)
                 pdata = pfile[k][...]
                 try:
                     assert np.array_equal(v, pdata),f'Failed original test for {k}'
-                    assert np.array_equal(hdata, pdata), f'Failed comparison test for {d}'
+                    assert np.array_equal(hdata.astype(str), pdata.astype(str)), f'Failed comparison test for {k}'
+                    print(f'--> Passing {k} ({hdata.dtype},{pdata.dtype})')
                 except:
-                    print(f'---> Failing {k}')
+                    print(f'---> Failing {k} ({hdata.dtype},{pdata.dtype})')
                     print('Original data', v)
-                    print('h5py', hdata)
-                    print('pyfive', pdata)
+                    print('h5py', hfile[k].dtype, hdata)
+                    print('pyfive',pfile[k].dtype, pdata)
                     raise

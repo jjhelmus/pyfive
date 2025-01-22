@@ -297,7 +297,8 @@ class DatasetID:
                 return np.array([Reference(addr) for addr in ref_addresses])[args]
             elif dtype_class == 'VLEN_STRING':
                 fh = self._fh
-                return get_vlen_string_data(fh, self.data_offset, self._global_heaps, self.shape, self.dtype)
+                array = get_vlen_string_data(fh, self.data_offset, self._global_heaps, self.shape, self.dtype)
+                return array.reshape(self.shape, order=self._order)
             else:
                 raise NotImplementedError(f'datatype not implemented - {dtype_class}')
 

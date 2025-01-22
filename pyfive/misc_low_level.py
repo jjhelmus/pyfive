@@ -342,6 +342,8 @@ def get_vlen_string_data(fh, data_offset, global_heaps, shape, dtype):
     fh.seek(data_offset)
     count = prod(shape)
     _, _, character_set = dtype
+    if int(character_set) not in [0, 1]:
+        raise ValueError(f'Unexpected string type, cannot decode character set {character_set}')
     value = np.empty(count,dtype=object)
     offset = 0
     buf = fh.read(16*count)
@@ -349,19 +351,20 @@ def get_vlen_string_data(fh, data_offset, global_heaps, shape, dtype):
         vlen_size, = struct.unpack_from('<I', buf, offset=offset)
         gheap_id = _unpack_struct_from(GLOBAL_HEAP_ID, buf, offset+4)
         gheap_address = gheap_id['collection_address']
-        print('Collection address for data', gheap_address)
+        #print('Collection address for data', gheap_address)
         if gheap_address not in global_heaps:
             # load the global heap and cache the instance
             gheap = GlobalHeap(fh, gheap_address)
             global_heaps[gheap_address] = gheap
         gheap = global_heaps[gheap_address]
-        vlen_data = gheap.objects[gheap_id['object_index']]
-        if character_set == 0:
-            # ascii character set, return as bytes
-            value[i] = vlen_data
-        else:
-            value[i] = vlen_data.decode('utf-8')
+        value[i] = gheap.objects[gheap_id['object_index']]
         offset +=16
+        # if character_set == 0 ascii character set, return as bytes
+        if character_set !=0: 
+            # would like to do this outside the loop, but it's problematic at the moment
+            #decode = np.vectorize(lambda x: x.decode('utf-8'))
+            #value = decode(value)
+            value[i] = value[i].decode('UTF-8')
     return value
 
 
