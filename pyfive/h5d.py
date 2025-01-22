@@ -84,9 +84,9 @@ class DatasetID:
 
         if isinstance(dataobject.dtype,tuple):
             # this may not behave the same as h5py, do we care? #FIXME
-            self.dtype = dataobject.dtype
+            self._dtype = dataobject.dtype
         else:
-            self.dtype = np.dtype(dataobject.dtype)
+            self._dtype = np.dtype(dataobject.dtype)
 
         self._meta = DatasetMeta(dataobject)
 
@@ -158,13 +158,13 @@ class DatasetID:
             case 1:  # contiguous storage
                 if self.data_offset == UNDEFINED_ADDRESS:
                     # no storage is backing array, return all zeros
-                    return np.zeros(self.shape, dtype=self.dtype)[args]
+                    return np.zeros(self.shape, dtype=self._dtype)[args]
                 else:
                     return self._get_contiguous_data(args)
             case 2:  # chunked storage
                 if not self._index:
-                    return np.zeros(self.shape, dtype=self.dtype)[args]
-                if isinstance(self.dtype, tuple):
+                    return np.zeros(self.shape, dtype=self._dtype)[args]
+                if isinstance(self._dtype, tuple):
                 # references need to read all the chunks for now
                     return self._get_selection_via_chunks(())[args]
                 else:
@@ -196,19 +196,20 @@ class DatasetID:
         array = ZarrArrayStub(self.shape, self.chunks)
 
         if args:
-            # convert to getitem type args
-            converted = []
-            for s in args:
-                if isinstance(s, slice) and (s.stop - s.start) == 1:
-                    converted.append(s.start)
-                else:
-                    converted.append(s)
-            args = tuple(converted)
-            indexer = OrthogonalIndexer(*args, array) 
+            # We have implemented what the docstring says it does below,
+            # but that's not what h5py actually does, and what is it 
+            # actually does is useless, so we haven't implemented that
+            raise NotImplementedError("h5py does something silly, and our implementation does not")
+            indexer = OrthogonalIndexer(args[0], array) 
         else:
             indexer = OrthogonalIndexer(args, array) 
-        for _, _, out_selection in indexer:
-            yield convert_selection(out_selection)
+        for chunk_coords, chunk_selection, out_selection in indexer:
+            if args:
+                yield convert_selection(chunk_selection)
+            else:
+                yield convert_selection(out_selection)
+
+   
 
     ##### The following property is made available to support ActiveStorage
     ##### and to help those who may want to generate kerchunk indices and
@@ -243,7 +244,7 @@ class DatasetID:
         is returned for the contiguous data as if it were one chunk.
         """
         if not self._index:
-            dummy =  StoreInfo(None, None, self.data_offset, self.dtype.itemsize*np.prod(self.shape))
+            dummy =  StoreInfo(None, None, self.data_offset, self._dtype.itemsize*np.prod(self.shape))
             return dummy
         else:
             coord_index = tuple(map(mul, chunk_coords, self.chunks))
@@ -291,7 +292,7 @@ class DatasetID:
 
     def _get_contiguous_data(self, args):
 
-        if not isinstance(self.dtype, tuple):
+        if not isinstance(self._dtype, tuple):
             if not self.posix:
                 # Not posix
                 return self._get_direct_from_contiguous(args)
@@ -304,7 +305,7 @@ class DatasetID:
                     fh = self._fh
                     view =  np.memmap(
                         fh,
-                        dtype=self.dtype,
+                        dtype=self._dtype,
                         mode='c',
                         offset=self.data_offset,
                         shape=self.shape,
@@ -319,9 +320,9 @@ class DatasetID:
                 except UnsupportedOperation:
                     return self._get_direct_from_contiguous(args)
         else:
-            dtype_class = self.dtype[0]
+            dtype_class = self._dtype[0]
             if dtype_class == 'REFERENCE':
-                size = self.dtype[1]
+                size = self._dtype[1]
                 if size != 8:
                     raise NotImplementedError('Unsupported Reference type - size {size}')
 
@@ -336,7 +337,7 @@ class DatasetID:
                 return result
             elif dtype_class == 'VLEN_STRING':
                 fh = self._fh
-                array = get_vlen_string_data(fh, self.data_offset, self._global_heaps, self.shape, self.dtype)
+                array = get_vlen_string_data(fh, self.data_offset, self._global_heaps, self.shape, self._dtype)
                 return array.reshape(self.shape, order=self._order)
             else:
                 raise NotImplementedError(f'datatype not implemented - {dtype_class}')
@@ -353,7 +354,7 @@ class DatasetID:
         """
         def __get_pseudo_shape():
             """ Determine an appropriate chunk and stride for a given pseudo chunk size """
-            element_size = self.dtype.itemsize
+            element_size = self._dtype.itemsize
             chunk_shape = np.copy(self.shape)
             while True:
                 chunk_size = np.prod(chunk_shape) * element_size
@@ -381,17 +382,17 @@ class DatasetID:
             array = ZarrArrayStub(self.shape, chunk_shape)
             indexer = OrthogonalIndexer(args, array)
             out_shape = indexer.shape
-            out = np.empty(out_shape, dtype=self.dtype, order=self._order)
+            out = np.empty(out_shape, dtype=self._dtype, order=self._order)
             chunk_size = np.prod(chunk_shape)
 
             for chunk_coords, chunk_selection, out_selection in indexer:
                 index = self.data_offset + offset_finder.coord_to_offset(chunk_coords)
                 fh.seek(index)
                 chunk_buffer = fh.read(stride)
-                chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype).copy()
+                chunk_data = np.frombuffer(chunk_buffer, dtype=self._dtype).copy()
                 if len(chunk_data) < chunk_size:
                     # last chunk over end of file
-                    padded_chunk_data = np.zeros(chunk_size, dtype=self.dtype)
+                    padded_chunk_data = np.zeros(chunk_size, dtype=self._dtype)
                     padded_chunk_data[:len(chunk_data)] = chunk_data
                     chunk_data = padded_chunk_data
                 out[out_selection] = chunk_data.reshape(chunk_shape, order=self._order)[chunk_selection]
@@ -402,7 +403,7 @@ class DatasetID:
             return out
 
         else:
-            itemsize = np.dtype(self.dtype).itemsize
+            itemsize = np.dtype(self._dtype).itemsize
             num_elements = np.prod(self.shape, dtype=int)
             num_bytes = num_elements*itemsize
 
@@ -410,7 +411,7 @@ class DatasetID:
             # read the lot)
             fh.seek(self.data_offset)
             chunk_buffer = fh.read(num_bytes) 
-            chunk_data = np.frombuffer(chunk_buffer, dtype=self.dtype).copy()
+            chunk_data = np.frombuffer(chunk_buffer, dtype=self._dtype).copy()
             chunk_data = chunk_data.reshape(self.shape, order=self._order)
             chunk_data = chunk_data[args]
             if self.posix:
@@ -436,9 +437,9 @@ class DatasetID:
         the dataset array and in doing so, only load the relevant chunks.
         """
         # need a local dtype as we may override it for a reference read.
-        dtype = self.dtype
+        dtype = self._dtype
 
-        if isinstance(self.dtype, tuple): 
+        if isinstance(self._dtype, tuple): 
             # this is a reference and we're returning that
             true_dtype = tuple(dtype)
             dtype_class = dtype[0]
@@ -465,7 +466,7 @@ class DatasetID:
             filter_mask, chunk_buffer = self.read_direct_chunk(chunk_coords)
             if self.filter_pipeline is not None:
                 # we are only using the class method here, future filter pipelines may need their own function
-                chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, self.filter_pipeline, self.dtype.itemsize)
+                chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, self.filter_pipeline, self._dtype.itemsize)
             chunk_data = np.frombuffer(chunk_buffer, dtype=dtype).copy()
             out[out_selection] = chunk_data.reshape(self.chunks, order=self._order)[chunk_selection]
        
@@ -504,6 +505,14 @@ class DatasetID:
             self.__fh = fh
 
         return fh
+
+    @property
+    def dtype(self):
+        if isinstance(self._dtype,tuple):
+            if self._dtype[0] == 'VLEN_STRING':
+                return object
+        
+        return self._dtype
 
 
 
