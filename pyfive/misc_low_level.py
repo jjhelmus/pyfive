@@ -349,7 +349,7 @@ def get_vlen_string_data(fh, data_offset, global_heaps, shape, dtype):
         vlen_size, = struct.unpack_from('<I', buf, offset=offset)
         gheap_id = _unpack_struct_from(GLOBAL_HEAP_ID, buf, offset+4)
         gheap_address = gheap_id['collection_address']
-        print('Collection address', gheap_address)
+        print('Collection address for data', gheap_address)
         if gheap_address not in global_heaps:
             # load the global heap and cache the instance
             gheap = GlobalHeap(fh, gheap_address)
