@@ -132,7 +132,8 @@ class GlobalHeap(object):
     """
 
     def __init__(self, fh, offset):
-
+    
+        print ('fh=', fh, offset)
         fh.seek(offset)
         header = _unpack_struct_from_file(GLOBAL_HEAP_HEADER, fh)
         assert header['signature'] == b'GCOL'
@@ -349,7 +350,9 @@ def get_vlen_string_data(fh, data_offset, global_heaps, shape, dtype):
     buf = fh.read(16*count)
     for i in range(count):
         vlen_size, = struct.unpack_from('<I', buf, offset=offset)
+        print ('vlen_size=', vlen_size)
         gheap_id = _unpack_struct_from(GLOBAL_HEAP_ID, buf, offset+4)
+        print (gheap_id)
         gheap_address = gheap_id['collection_address']
         #print('Collection address for data', gheap_address)
         if gheap_address not in global_heaps:

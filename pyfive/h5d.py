@@ -303,7 +303,7 @@ class DatasetID:
                     # means that we will end up only copying the
                     # sub-array into in memory.
                     fh = self._fh
-                    view =  np.memmap(
+                    view = np.memmap(
                         fh,
                         dtype=self._dtype,
                         mode='c',
@@ -338,7 +338,7 @@ class DatasetID:
             elif dtype_class == 'VLEN_STRING':
                 fh = self._fh
                 array = get_vlen_string_data(fh, self.data_offset, self._global_heaps, self.shape, self._dtype)
-                return array.reshape(self.shape, order=self._order)
+                return array.reshape(self.shape, order=self._order)[args]
             else:
                 raise NotImplementedError(f'datatype not implemented - {dtype_class}')
 
@@ -438,7 +438,8 @@ class DatasetID:
         """
         # need a local dtype as we may override it for a reference read.
         dtype = self._dtype
-
+        print ('DTYPE', dtype)
+        print ('args =', args)
         if isinstance(self._dtype, tuple): 
             # this is a reference and we're returning that
             true_dtype = tuple(dtype)
@@ -448,8 +449,11 @@ class DatasetID:
                 if size != 8:
                     raise NotImplementedError('Unsupported Reference type')
                 dtype = '<u8'
-            else:
-                raise NotImplementedError('datatype not implemented')
+#            elif dtype_class == 'VLEN_STRING':
+#                pass
+                
+#            else:
+#                raise NotImplementedError('datatype not implemented')
         else:
             true_dtype = None
             if np.prod(self.shape) == 0:
@@ -458,20 +462,92 @@ class DatasetID:
         array = ZarrArrayStub(self.shape, self.chunks)
         indexer = OrthogonalIndexer(args, array) 
         out_shape = indexer.shape
-        out = np.empty(out_shape, dtype=dtype, order=self._order)
+        print (out_shape, self.dtype, self._order)
+        out = np.empty(out_shape, dtype=self.dtype, order=self._order)
 
-        for chunk_coords, chunk_selection, out_selection in indexer:
-            # map from chunk coordinate space to array space which is how hdf5 keeps the index
-            chunk_coords = tuple(map(mul, chunk_coords, self.chunks))
-            filter_mask, chunk_buffer = self.read_direct_chunk(chunk_coords)
-            if self.filter_pipeline is not None:
-                # we are only using the class method here, future filter pipelines may need their own function
-                chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, self.filter_pipeline, self._dtype.itemsize)
-            chunk_data = np.frombuffer(chunk_buffer, dtype=dtype).copy()
-            out[out_selection] = chunk_data.reshape(self.chunks, order=self._order)[chunk_selection]
+        if dtype_class == 'VLEN_STRING':
+            print ('indexer', indexer)
+            fh = self._fh
+            for chunk_coords, chunk_selection, out_selection in indexer:
+                chunk_coords = tuple(map(mul, chunk_coords, self.chunks))
+                print ('CCO',chunk_coords, chunk_selection, out_selection, self._index[chunk_coords].byte_offset )
+                fh.seek(self._index[chunk_coords].byte_offset)
+                # map from chunk coordinate space to array space which
+                # is how hdf5 keeps the index
+#                filter_mask, chunk_buffer = self.read_direct_chunk(
+#                    chunk_coords
+#                )
+#                print (' chunk_buffer',  chunk_buffer, out_selection)
+#                print ('array', array.__dict__)
+
+                from math import prod
+                from .core import _unpack_struct_from
+                from .misc_low_level import GLOBAL_HEAP_ID, GlobalHeap
+                count = prod((3,)) #shape)
+                _, _, character_set = dtype
+                if int(character_set) not in [0, 1]:
+                    raise ValueError(
+                        f"Unexpected string type, cannot decode character "
+                        "set {character_set}"
+                    )
+                
+                value = np.empty(count, dtype=object)
+                offset = 0
+                buf = fh.read(16*count)
+                for i in range(count):
+                    vlen_size, = struct.unpack_from('<I', buf, offset=offset)
+                    print ('vlen_size=', vlen_size)
+                    gheap_id = _unpack_struct_from(
+                        GLOBAL_HEAP_ID, buf, offset + 4
+                    )
+                    gheap_address = gheap_id['collection_address']
+                    print (gheap_id)
+                    #print('Collection address for data', gheap_address)
+                    if gheap_address not in self._global_heaps:
+                        # load the global heap and cache the instance
+                        gheap = GlobalHeap(fh, gheap_address)
+                        self._global_heaps[gheap_address] = gheap
+                        gheap = self._global_heaps[gheap_address]
+                        v = gheap.objects[gheap_id['object_index']]
+                        print(repr(v))
+                    # if character_set == 0 ascii character set,
+                    # return as bytes
+                    #if character_set: 
+                    #    # would like to do this outside the loop, but
+                    #    # it's problematic at the moment
+                    #    #decode = np.vectorize(lambda x: x.decode('utf-8'))
+                    #    #value = decode(value)
+                    #    v = v.decode('UTF-8')
+
+                    value[i] = v
+                    offset +=16
+                        
+                print (value)
+
+                if self.posix:
+                    fh.close()
+                
+##                chunk_buffer = get_vlen_string_data(fh, #
+ #               chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, self.filter_pipeline, self._dtype.itemsize)
+                chunk_data = value #np.frombuffer(chunk_buffer, dtype='S8')
+                chunk_data = chunk_data.reshape(self.chunks)
+                out[out_selection] = chunk_data[chunk_selection]
+                
+            raise ValueError(9999)
+        else:        
+            for chunk_coords, chunk_selection, out_selection in indexer:
+                # map from chunk coordinate space to array space which
+                # is how hdf5 keeps the index
+                chunk_coords = tuple(map(mul, chunk_coords, self.chunks))
+                filter_mask, chunk_buffer = self.read_direct_chunk(chunk_coords)
+                if self.filter_pipeline is not None:
+                    # we are only using the class method here, future
+                    # filter pipelines may need their own function
+                    chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, self.filter_pipeline, self._dtype.itemsize)
+                chunk_data = np.frombuffer(chunk_buffer, dtype=dtype).copy()
+                out[out_selection] = chunk_data.reshape(self.chunks, order=self._order)[chunk_selection]
        
         if true_dtype is not None:
-            
             if dtype_class == 'REFERENCE':
                 to_reference = np.vectorize(Reference)
                 out = to_reference(out)
@@ -508,9 +584,8 @@ class DatasetID:
 
     @property
     def dtype(self):
-        if isinstance(self._dtype,tuple):
-            if self._dtype[0] == 'VLEN_STRING':
-                return object
+        if isinstance(self._dtype, tuple) and self._dtype[0] == 'VLEN_STRING':
+            return np.dtype("O")
         
         return self._dtype
 
