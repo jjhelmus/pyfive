@@ -8,7 +8,7 @@ import warnings
 
 import numpy as np
 
-from pyfive.core import Reference
+from pyfive.core import Reference, UNDEFINED_ADDRESS
 from pyfive.dataobjects import DataObjects, DatasetID
 from pyfive.misc_low_level import SuperBlock
 
@@ -298,8 +298,7 @@ class Dataset(object):
         return '<HDF5 dataset "%s": shape %s, type "%s">' % info
 
     def __getitem__(self, args):
-        print (88888, self.fillvalue)
-        data = self.id.get_data(args)
+        data = self.id.get_data(args, self.fillvalue)
         if self._astype is None:
             return data
         return data.astype(self._astype)

@@ -150,7 +150,7 @@ class DatasetID:
         storeinfo = self._index[chunk_position]
         return storeinfo.filter_mask, self._get_raw_chunk(storeinfo)
     
-    def get_data(self, args):
+    def get_data(self, args, fillvalue):
         """ Called by the dataset getitem method """
         dtype = self._dtype
         match self.layout_class:
@@ -158,13 +158,12 @@ class DatasetID:
                 raise NotImplementedError("Compact Storage")
             case 1:  # contiguous storage
                 if self.data_offset == UNDEFINED_ADDRESS:
-                    # no storage is backing array, return all zeros
+                    # no storage is backing array, return an array of
+                    # fill values
                     if isinstance(dtype, tuple):
-                        return np.zeros(self.shape, dtype='U')[args]
-                    else:
-                        print(99, self.__dict__)
-                        return np.full(self.shape, self.fillvalue, dtype=dtype)[args]
-#                        return np.zeros(self.shape, dtype=dtype)[args]  
+                        dtype = np.array(fillvalue).dtype
+
+                    return np.full(self.shape, fillvalue, dtype=dtype)[args]
                 else:
                     return self._get_contiguous_data(args)
             case 2:  # chunked storage
@@ -172,7 +171,6 @@ class DatasetID:
                     if isinstance(dtype, tuple):
                         return np.zeros(self.shape, dtype='U')[args]
                     else:
-                        print(991)
                         return np.zeros(self.shape, dtype=dtype)[args]
                 if isinstance(dtype, tuple) and dtype[0] == "REFERENCE":
                     # references need to read all the chunks for now
