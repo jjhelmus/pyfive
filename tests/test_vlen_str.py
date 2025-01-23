@@ -27,6 +27,26 @@ def make_file_nc(file_like,m_array, inmemory=False):
     if not inmemory:
         n.close()
 
+def make_contiguous_and_chunked_nc(our_file):
+    m = ["January", "February", "March", "April", "May",
+         "June", "July", "August", "September", "October",
+         "November", "December"]
+
+    with nc.Dataset(our_file, "w", format="NETCDF4") as n:
+        n.createDimension("y", 3)
+        n.createDimension("x", 4)
+        
+        # Contiguous variable
+        months = n.createVariable("months", str, ("y", "x",))
+        months.long_name = "string: Four months (contiguous)"
+        months[...] = np.array(m, dtype="S9").reshape(3, 4)
+
+        # Chunked variable
+        months_chunked = n.createVariable("months_chunked", str, ("y", "x",),
+                                   chunksizes=(2, 2))
+        months_chunked.long_name = "string: Four months (chunked)"
+        months_chunked[...] = np.array(m, dtype="U9").reshape(3, 4)
+
 
 def make_pathological_nc(our_file):
     n = nc.Dataset(our_file, "w", format="NETCDF4")
@@ -150,18 +170,21 @@ def test_vlen_string_nc2(tmp_path):
     tfile = tmp_path / 'test_vlen_string.nc'
     m_array = ["January", "February", "March", "April"]
     make_file_nc(tfile, m_array)
-    
+
+    # Bytes version
+    m_array_bytes = [m.encode('utf-8') for m in m_array]        
+
     with nc.Dataset(tfile, 'r') as ncfile:
-        ds1 = ncfile.variables['months'][:]
-        assert np.array_equal(m_array, ds1.astype(str))
-    
+        ds1 = ncfile.variables['months'][:].tolist()
+        assert np.array_equal(m_array, ds1)
+         
     with h5py.File(tfile, 'r') as pfile:
-        ds1 = pfile['months'][:]
-        assert np.array_equal(m_array, ds1.astype(str))
+        ds1 = pfile['months'][:].tolist()
+        assert np.array_equal(m_array_bytes, ds1)
     
     with pyfive.File(tfile) as hfile:
-        ds1 = hfile['months'][:]
-        assert np.array_equal(m_array, ds1.astype(str))
+        ds1 = hfile['months'][:].tolist()
+        assert np.array_equal(m_array, ds1)
 
 def test_pathological_strings(tmp_path):
     tfile = tmp_path/'test_strings.nc'
@@ -182,3 +205,37 @@ def test_pathological_strings(tmp_path):
                     print('h5py', hfile[k].dtype, hdata)
                     print('pyfive',pfile[k].dtype, pdata)
                     raise
+
+def test_vlen_contiguous_chunked(tmp_path):
+    tfile = tmp_path/'test_strings_2.nc'
+    make_contiguous_and_chunked_nc(tfile)
+
+    # Check that slices of the contiguous and chunked vesions of the
+    # data are identical. Include slices that span multiple chunks.
+    # 
+    # The array shape is (3, 4) and the chunksize is (2, 2), give four
+    # chunks (A, B, C, D) as follows:
+    #
+    #  +---+---+---+---+
+    #  | A | A | B | B |
+    #  +---+---+---+---+
+    #  | A | A | B | B |
+    #  +---+---+---+---+
+    #  | C | C | D | D |
+    #  +---+---+---+---+
+    #
+    # So (slice(0, 2), slice(0, 2)) selects the entirety of the A
+    # chunks, and no others.
+
+    with pyfive.File(tfile) as pfile:
+        contiguous = pfile['months']
+        chunked = pfile['months_chunked']
+        
+        for index in (
+                Ellipsis,
+                (slice(1, 3), slice(1, 3)), # spans sub-parts of all 4 chunks
+                (1, slice(None)),
+                (slice(None), 1),
+                (slice(0, 2), slice(0,2)),            
+        ):
+            assert np.array_equal(contiguous[index], chunked[index])

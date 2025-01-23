@@ -298,6 +298,7 @@ class Dataset(object):
         return '<HDF5 dataset "%s": shape %s, type "%s">' % info
 
     def __getitem__(self, args):
+        print (88888, self.fillvalue)
         data = self.id.get_data(args)
         if self._astype is None:
             return data
