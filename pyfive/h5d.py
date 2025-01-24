@@ -163,15 +163,21 @@ class DatasetID:
                     if isinstance(dtype, tuple):
                         dtype = np.array(fillvalue).dtype
 
+                    # Note: We can improve this so only an array of
+                    #       the shape implied by 'args' is
+                    #       created. One for the future.
                     return np.full(self.shape, fillvalue, dtype=dtype)[args]
                 else:
                     return self._get_contiguous_data(args)
             case 2:  # chunked storage
                 if not self._index:
+                    # no storage is backing array, return an array of
+                    # fill values
                     if isinstance(dtype, tuple):
-                        return np.zeros(self.shape, dtype='U')[args]
-                    else:
-                        return np.zeros(self.shape, dtype=dtype)[args]
+                        dtype = np.array(fillvalue).dtype
+
+                    return np.full(self.shape, fillvalue, dtype=dtype)[args]
+
                 if isinstance(dtype, tuple) and dtype[0] == "REFERENCE":
                     # references need to read all the chunks for now
                     return self._get_selection_via_chunks(())[args]
@@ -462,9 +468,11 @@ class DatasetID:
             dtype_class = dtype[0]
             if dtype_class == 'REFERENCE':
                 size = dtype[1]
+                dtype = '<u8'
                 if size != 8:
                     raise NotImplementedError('Unsupported Reference type')
-                dtype = '<u8'
+            elif dtype_class == 'VLEN_STRING':
+                dtype = self.dtype
         else:
             true_dtype = None
             dtype_class = None
@@ -474,7 +482,7 @@ class DatasetID:
         array = ZarrArrayStub(self.shape, self.chunks)
         indexer = OrthogonalIndexer(args, array) 
         out_shape = indexer.shape
-        out = np.empty(out_shape, dtype=self.dtype, order=self._order)
+        out = np.empty(out_shape, dtype=dtype, order=self._order)
 
         if dtype_class == 'VLEN_STRING':
             fh = self._fh
@@ -482,6 +490,7 @@ class DatasetID:
             chunk_shape = self.chunks
             global_heaps = self._global_heaps
             index = self._index
+            _dtype = self._dtype
             for chunk_coords, chunk_selection, out_selection in indexer:
                 chunk_coords = tuple(map(mul, chunk_coords, self.chunks))
                 chunk_data = get_vlen_string_data_from_chunk(
@@ -489,7 +498,7 @@ class DatasetID:
                     index[chunk_coords].byte_offset,
                     global_heaps,
                     chunk_shape,
-                    dtype
+                    _dtype
                 )
                 chunk_data  = chunk_data.reshape(chunk_shape)
                 out[out_selection] = chunk_data[chunk_selection]
@@ -552,9 +561,9 @@ class DatasetID:
 
     @property
     def dtype(self):
-        if isinstance(self._dtype, tuple): # and self._dtype[0] == 'VLEN_STRING':
+        if isinstance(self._dtype, tuple) and self._dtype[0] == 'VLEN_STRING':
             return np.dtype("O")
-        
+
         return self._dtype
 
 

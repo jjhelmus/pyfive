@@ -8,7 +8,7 @@ import warnings
 
 import numpy as np
 
-from pyfive.core import Reference, UNDEFINED_ADDRESS
+from pyfive.core import Reference
 from pyfive.dataobjects import DataObjects, DatasetID
 from pyfive.misc_low_level import SuperBlock
 

@@ -35,7 +35,7 @@ def make_contiguous_and_chunked_nc(our_file):
     with nc.Dataset(our_file, "w", format="NETCDF4") as n:
         n.createDimension("y", 3)
         n.createDimension("x", 4)
-        
+
         # Contiguous variable
         months = n.createVariable("months", str, ("y", "x",))
         months.long_name = "string: Four months (contiguous)"
@@ -172,12 +172,12 @@ def test_vlen_string_nc2(tmp_path):
     make_file_nc(tfile, m_array)
 
     # Bytes version
-    m_array_bytes = [m.encode('utf-8') for m in m_array]        
+    m_array_bytes = [m.encode('utf-8') for m in m_array]
 
     with nc.Dataset(tfile, 'r') as ncfile:
         ds1 = ncfile.variables['months'][:].tolist()
         assert np.array_equal(m_array, ds1)
-         
+
     with h5py.File(tfile, 'r') as pfile:
         ds1 = pfile['months'][:].tolist()
         assert np.array_equal(m_array_bytes, ds1)
@@ -212,7 +212,7 @@ def test_vlen_contiguous_chunked(tmp_path):
 
     # Check that slices of the contiguous and chunked vesions of the
     # data are identical. Include slices that span multiple chunks.
-    # 
+    #
     # The array shape is (3, 4) and the chunksize is (2, 2), give four
     # chunks (A, B, C, D) as follows:
     #
@@ -230,12 +230,12 @@ def test_vlen_contiguous_chunked(tmp_path):
     with pyfive.File(tfile) as pfile:
         contiguous = pfile['months']
         chunked = pfile['months_chunked']
-        
+
         for index in (
                 Ellipsis,
                 (slice(1, 3), slice(1, 3)), # spans sub-parts of all 4 chunks
                 (1, slice(None)),
                 (slice(None), 1),
-                (slice(0, 2), slice(0,2)),            
+                (slice(0, 2), slice(0,2)),
         ):
             assert np.array_equal(contiguous[index], chunked[index])

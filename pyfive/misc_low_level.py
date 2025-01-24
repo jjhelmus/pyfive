@@ -418,7 +418,7 @@ def _convert_to_utf8_string_objects(array):
     array = decode(array)
     array = array.astype('O')
     return array
-  
+
 
 FORMAT_SIGNATURE = b'\211HDF\r\n\032\n'
 
