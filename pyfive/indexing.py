@@ -757,7 +757,7 @@ class BlockIndexer:
                     f"expected integer or slice, got {type(dim_sel)!r}"
                 )
 
-            dim_indexer = SliceDiImndexer(slice_, dim_len, dim_chunk_size)
+            dim_indexer = SliceDimIndexer(slice_, dim_len, dim_chunk_size)
             dim_indexers.append(dim_indexer)
 
             if start >= dim_len or start < 0:
