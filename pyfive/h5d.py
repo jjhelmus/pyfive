@@ -4,7 +4,7 @@ from operator import mul
 from pyfive.indexing import OrthogonalIndexer, ZarrArrayStub
 from pyfive.btree import BTreeV1RawDataChunks
 from pyfive.core import Reference, UNDEFINED_ADDRESS
-from pyfive.misc_low_level import get_vlen_string_data
+from pyfive.misc_low_level import get_vlen_string_data_contiguous, get_vlen_string_data_from_chunk
 from io import UnsupportedOperation
 
 import struct
@@ -150,22 +150,36 @@ class DatasetID:
         storeinfo = self._index[chunk_position]
         return storeinfo.filter_mask, self._get_raw_chunk(storeinfo)
     
-    def get_data(self, args):
+    def get_data(self, args, fillvalue):
         """ Called by the dataset getitem method """
+        dtype = self._dtype
         match self.layout_class:
             case 0:  #compact storage
                 raise NotImplementedError("Compact Storage")
             case 1:  # contiguous storage
                 if self.data_offset == UNDEFINED_ADDRESS:
-                    # no storage is backing array, return all zeros
-                    return np.zeros(self.shape, dtype=self._dtype)[args]
+                    # no storage is backing array, return an array of
+                    # fill values
+                    if isinstance(dtype, tuple):
+                        dtype = np.array(fillvalue).dtype
+
+                    # Note: We can improve this so only an array of
+                    #       the shape implied by 'args' is
+                    #       created. One for the future.
+                    return np.full(self.shape, fillvalue, dtype=dtype)[args]
                 else:
                     return self._get_contiguous_data(args)
             case 2:  # chunked storage
                 if not self._index:
-                    return np.zeros(self.shape, dtype=self._dtype)[args]
-                if isinstance(self._dtype, tuple):
-                # references need to read all the chunks for now
+                    # no storage is backing array, return an array of
+                    # fill values
+                    if isinstance(dtype, tuple):
+                        dtype = np.array(fillvalue).dtype
+
+                    return np.full(self.shape, fillvalue, dtype=dtype)[args]
+
+                if isinstance(dtype, tuple) and dtype[0] == "REFERENCE":
+                    # references need to read all the chunks for now
                     return self._get_selection_via_chunks(())[args]
                 else:
                     # this is lazily reading only the chunks we need
@@ -303,7 +317,7 @@ class DatasetID:
                     # means that we will end up only copying the
                     # sub-array into in memory.
                     fh = self._fh
-                    view =  np.memmap(
+                    view = np.memmap(
                         fh,
                         dtype=self._dtype,
                         mode='c',
@@ -337,8 +351,17 @@ class DatasetID:
                 return result
             elif dtype_class == 'VLEN_STRING':
                 fh = self._fh
-                array = get_vlen_string_data(fh, self.data_offset, self._global_heaps, self.shape, self._dtype)
-                return array.reshape(self.shape, order=self._order)
+                array = get_vlen_string_data_contiguous(
+                    fh,
+                    self.data_offset,
+                    self._global_heaps,
+                    self.shape,
+                    self._dtype
+                )
+                if self.posix:
+                    fh.close()
+
+                return array.reshape(self.shape, order=self._order)[args]
             else:
                 raise NotImplementedError(f'datatype not implemented - {dtype_class}')
 
@@ -432,26 +455,27 @@ class DatasetID:
         return out
 
     def _get_selection_via_chunks(self, args):
-        """
-        Use the zarr orthogonal indexer to extract data for a specfic selection within
-        the dataset array and in doing so, only load the relevant chunks.
+        """Use the zarr orthogonal indexer to extract data for a specfic
+        selection within the dataset array and in doing so, only load
+        the relevant chunks.
+
         """
         # need a local dtype as we may override it for a reference read.
         dtype = self._dtype
-
         if isinstance(self._dtype, tuple): 
             # this is a reference and we're returning that
             true_dtype = tuple(dtype)
             dtype_class = dtype[0]
             if dtype_class == 'REFERENCE':
                 size = dtype[1]
+                dtype = '<u8'
                 if size != 8:
                     raise NotImplementedError('Unsupported Reference type')
-                dtype = '<u8'
-            else:
-                raise NotImplementedError('datatype not implemented')
+            elif dtype_class == 'VLEN_STRING':
+                dtype = self.dtype
         else:
             true_dtype = None
+            dtype_class = None
             if np.prod(self.shape) == 0:
                 return np.zeros(self.shape)
 
@@ -460,23 +484,52 @@ class DatasetID:
         out_shape = indexer.shape
         out = np.empty(out_shape, dtype=dtype, order=self._order)
 
-        for chunk_coords, chunk_selection, out_selection in indexer:
-            # map from chunk coordinate space to array space which is how hdf5 keeps the index
-            chunk_coords = tuple(map(mul, chunk_coords, self.chunks))
-            filter_mask, chunk_buffer = self.read_direct_chunk(chunk_coords)
-            if self.filter_pipeline is not None:
-                # we are only using the class method here, future filter pipelines may need their own function
-                chunk_buffer = BTreeV1RawDataChunks._filter_chunk(chunk_buffer, filter_mask, self.filter_pipeline, self._dtype.itemsize)
-            chunk_data = np.frombuffer(chunk_buffer, dtype=dtype).copy()
-            out[out_selection] = chunk_data.reshape(self.chunks, order=self._order)[chunk_selection]
-       
-        if true_dtype is not None:
+        if dtype_class == 'VLEN_STRING':
+            fh = self._fh
             
-            if dtype_class == 'REFERENCE':
-                to_reference = np.vectorize(Reference)
-                out = to_reference(out)
-            else:
-                raise NotImplementedError('datatype not implemented')
+            chunk_shape = self.chunks
+            global_heaps = self._global_heaps
+            index = self._index
+            _dtype = self._dtype
+            for chunk_coords, chunk_selection, out_selection in indexer:
+                chunk_coords = tuple(map(mul, chunk_coords, self.chunks))
+                chunk_data = get_vlen_string_data_from_chunk(
+                    fh,
+                    index[chunk_coords].byte_offset,
+                    global_heaps,
+                    chunk_shape,
+                    _dtype
+                )
+                chunk_data  = chunk_data.reshape(chunk_shape)
+                out[out_selection] = chunk_data[chunk_selection]
+
+            if self.posix:
+                fh.close()
+
+        else:
+            for chunk_coords, chunk_selection, out_selection in indexer:
+                # map from chunk coordinate space to array space which
+                # is how hdf5 keeps the index
+                chunk_coords = tuple(map(mul, chunk_coords, self.chunks))
+                filter_mask, chunk_buffer = self.read_direct_chunk(
+                    chunk_coords
+                )
+                if self.filter_pipeline is not None:
+                    # we are only using the class method here, future
+                    # filter pipelines may need their own function
+                    chunk_buffer = BTreeV1RawDataChunks._filter_chunk(
+                        chunk_buffer,
+                        filter_mask,
+                        self.filter_pipeline,
+                        self._dtype.itemsize
+                    )
+                chunk_data = np.frombuffer(chunk_buffer, dtype=dtype)
+                chunk_data = chunk_data.reshape(self.chunks, order=self._order)
+                out[out_selection] = chunk_data[chunk_selection]
+
+        if dtype_class == 'REFERENCE':
+            to_reference = np.vectorize(Reference)
+            out = to_reference(out)
 
         return out
 
@@ -508,10 +561,9 @@ class DatasetID:
 
     @property
     def dtype(self):
-        if isinstance(self._dtype,tuple):
-            if self._dtype[0] == 'VLEN_STRING':
-                return object
-        
+        if isinstance(self._dtype, tuple) and self._dtype[0] == 'VLEN_STRING':
+            return np.dtype("O")
+
         return self._dtype
 
 
