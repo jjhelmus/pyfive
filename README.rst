@@ -23,7 +23,7 @@ implemented.
 Dependencies
 ============
 
-pyfive is tested to work with Python 3.8 to 3.13.  It may also work
+pyfive is tested to work with Python 3.10 to 3.13.  It may also work
 with other Python versions.
 
 The only dependencies to run the software besides Python is NumPy.

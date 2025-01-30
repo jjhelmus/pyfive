@@ -1,2 +1,10 @@
 .coverage
+.pyc
 build
+__pycache__/
+*.egg-info
+.idea
+.DS_Store
+test-reports/
+<_io.Bytes*>
+tests/__pycache__/

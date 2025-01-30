@@ -5,19 +5,23 @@ from __future__ import division
 from collections import OrderedDict
 import struct
 import warnings
+from io import UnsupportedOperation
 
 import numpy as np
 
-from .datatype_msg import DatatypeMessage
-from .core import _padded_size, _structure_size
-from .core import _unpack_struct_from, _unpack_struct_from_file
-from .core import InvalidHDF5File
-from .core import Reference
-from .core import UNDEFINED_ADDRESS
-from .btree import BTreeV1Groups, BTreeV1RawDataChunks
-from .btree import BTreeV2GroupNames, BTreeV2GroupOrders
-from .btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
-from .misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap
+from pyfive.datatype_msg import DatatypeMessage
+from pyfive.core import _padded_size, _structure_size
+from pyfive.core import _unpack_struct_from, _unpack_struct_from_file
+from pyfive.core import InvalidHDF5File
+from pyfive.core import Reference
+from pyfive.core import UNDEFINED_ADDRESS
+from pyfive.btree import BTreeV1Groups, BTreeV1RawDataChunks
+from pyfive.btree import BTreeV2GroupNames, BTreeV2GroupOrders
+from pyfive.btree import BTreeV2AttrCreationOrder, BTreeV2AttrNames
+from pyfive.btree import GZIP_DEFLATE_FILTER, SHUFFLE_FILTER, FLETCH32_FILTER
+from pyfive.misc_low_level import Heap, SymbolTable, GlobalHeap, FractalHeap, GLOBAL_HEAP_ID
+from pyfive.h5d import DatasetID
+from pyfive.indexing import OrthogonalIndexer, ZarrArrayStub
 
 # these constants happen to have the same value...
 UNLIMITED_SIZE = UNDEFINED_ADDRESS
@@ -28,7 +32,7 @@ class DataObjects(object):
     HDF5 DataObjects.
     """
 
-    def __init__(self, fh, offset):
+    def __init__(self, fh, offset, order='C'):
         """ initalize. """
         fh.seek(offset)
         version_hint = struct.unpack_from('<B', fh.read(1))[0]
@@ -53,6 +57,7 @@ class DataObjects(object):
         self._chunks = None
         self._chunk_dims = None
         self._chunk_address = None
+        self.order = order
 
     @staticmethod
     def _parse_v1_objects(fh):
@@ -141,60 +146,104 @@ class DataObjects(object):
             offset = msg['offset_to_message']
             name, value = self.unpack_attribute(offset)
             attrs[name] = value
-        # TODO attributes may also be stored in objects reference in the
+        # Attributes may also be stored in objects reference in the
         # Attribute Info Message (0x0015, 21).
+        # Assume we can have both types though I suspect this is not the case
+        attr_info = self.find_msg_type(ATTRIBUTE_INFO_MSG_TYPE)
+        if attr_info:
+            more_attrs = self._get_attributes_from_attr_info(attrs, attr_info)
+            attrs.update(more_attrs)
         return attrs
+
+    def _get_attributes_from_attr_info(self, attrs, attr_info):
+        #assume we only have one of these
+        if len(attr_info) > 1:
+            raise NotImplementedError('Multiple Attribute Info Messages not supported')
+        offset = attr_info[0]['offset_to_message']
+        data = _unpack_struct_from(ATTR_INFO_MESSAGE, self.msg_data, offset)
+        heap_address = data['fractal_heap_address']
+        # I can't find any documentation on this, but at least some 
+        # files seem to use this to indicate no attribute info.
+        if heap_address == UNDEFINED_ADDRESS:
+            return {}
+        name_btree_address = data['name_btree_address']
+        order_btree_address = data['creation_order_btree_address']
+        heap = FractalHeap(self.fh, heap_address)
+        ordered = (order_btree_address is not None)
+        if ordered: 
+            btree = BTreeV2AttrCreationOrder(self.fh, order_btree_address)
+        else:
+            btree = BTreeV2AttrNames(self.fh, name_btree_address)
+        adict = dict()
+        for record in btree.iter_records():
+            data = heap.get_data(record['heapid'])
+            name, value = self._parse_attribute_msg(data,0)
+            adict[name] = value
+        return adict
+
 
     def unpack_attribute(self, offset):
         """ Return the attribute name and value. """
+        return self._parse_attribute_msg(self.msg_data, offset)
 
-        # read in the attribute message header
-        # See section IV.A.2.m. The Attribute Message for details
-        version = struct.unpack_from('<B', self.msg_data, offset)[0]
+
+    def _parse_attribute_msg(self, buffer, offset):
+        """
+        Unpack attribute name and value from a given buffer starting at the offset.
+        """
+
+        # Read the attribute message header
+        version = struct.unpack_from('<B', buffer, offset)[0]
         if version == 1:
-            attr_dict = _unpack_struct_from(
-                ATTR_MSG_HEADER_V1, self.msg_data, offset)
+            attr_dict = _unpack_struct_from(ATTR_MSG_HEADER_V1, buffer, offset)
             assert attr_dict['version'] == 1
             offset += ATTR_MSG_HEADER_V1_SIZE
             padding_multiple = 8
         elif version == 3:
-            attr_dict = _unpack_struct_from(
-                ATTR_MSG_HEADER_V3, self.msg_data, offset)
+            attr_dict = _unpack_struct_from(ATTR_MSG_HEADER_V3, buffer, offset)
             assert attr_dict['version'] == 3
             offset += ATTR_MSG_HEADER_V3_SIZE
-            padding_multiple = 1    # no padding
+            padding_multiple = 1  # no padding
         else:
             raise NotImplementedError(
-                "unsupported attribute message version: %i" % (version))
+                f"Unsupported attribute message version: {version}"
+            )
 
-        # read in the attribute name
+        # Read the attribute name
         name_size = attr_dict['name_size']
-        name = self.msg_data[offset:offset+name_size]
+        name = buffer[offset:offset + name_size]
         name = name.strip(b'\x00').decode('utf-8')
         offset += _padded_size(name_size, padding_multiple)
 
-        # read in the datatype information
+        # Read the datatype information
         try:
-            dtype = DatatypeMessage(self.msg_data, offset).dtype
+            dtype = DatatypeMessage(buffer, offset).dtype
         except NotImplementedError:
-            warnings.warn(
-                'Attribute %s type not implemented, set to None.' % (name, ))
+            if name == 'REFERENCE_LIST':
+                pass #suppress this one, no one actually cares about these as far as I know
+            else:
+                warnings.warn(
+                    f"Attribute {name} type not implemented, set to None."
+                )
             return name, None
         offset += _padded_size(attr_dict['datatype_size'], padding_multiple)
 
-        # read in the dataspace information
-        shape, maxshape = determine_data_shape(self.msg_data, offset)
+        # Read the dataspace information
+        shape, maxshape = determine_data_shape(buffer, offset)
         items = int(np.prod(shape))
         offset += _padded_size(attr_dict['dataspace_size'], padding_multiple)
 
-        # read in the value(s)
-        value = self._attr_value(dtype, self.msg_data, items, offset)
+        # Read the value(s)
+        value = self._attr_value(dtype, buffer, items, offset)
 
         if shape == ():
             value = value[0]
         else:
             value = value.reshape(shape)
+        
         return name, value
+
+    
 
     def _attr_value(self, dtype, buf, count, offset):
         """ Retrieve an HDF5 attribute value from a buffer. """
@@ -236,6 +285,7 @@ class DataObjects(object):
         # stored in the data object storage.
         gheap_id = _unpack_struct_from(GLOBAL_HEAP_ID, buf, offset+4)
         gheap_address = gheap_id['collection_address']
+        #print('Collection address in _vlen', gheap_address)
         if gheap_address not in self._global_heaps:
             # load the global heap and cache the instance
             gheap = GlobalHeap(self.fh, gheap_address)
@@ -243,6 +293,7 @@ class DataObjects(object):
         gheap = self._global_heaps[gheap_address]
         vlen_data = gheap.objects[gheap_id['object_index']]
         return vlen_size, vlen_data
+    
 
     @property
     def shape(self):
@@ -285,8 +336,15 @@ class DataObjects(object):
             size = 0
 
         if size:
-            payload = self.msg_data[offset:offset+size]
-            fillvalue = np.frombuffer(payload, self.dtype, count=1)[0]
+            if isinstance(self.dtype, tuple):
+                try:
+                    assert self.dtype[0] == 'VLEN_STRING'
+                except:
+                    raise ValueError('Unrecognised fill type')
+                fillvalue = self._attr_value(self.dtype, self.msg_data, 1, offset)[0]
+            else:
+                payload = self.msg_data[offset:offset+size]
+                fillvalue = np.frombuffer(payload, self.dtype, count=1)[0]
         else:
             fillvalue = 0
         return fillvalue
@@ -322,6 +380,8 @@ class DataObjects(object):
             gzip_entry = [d for d in self.filter_pipeline
                           if d['filter_id'] == GZIP_DEFLATE_FILTER][0]
             return gzip_entry['client_data'][0]
+            #key = {0:'client_data_values',1:'client_data'}['client_data' in gzip_entry]
+            #return gzip_entry[key][0]
         return None
 
     @property
@@ -409,7 +469,8 @@ class DataObjects(object):
                 filter_info['name'] = name
                 client_values = struct.unpack_from("<{:d}i".format(num_client_values), self.msg_data, offset)
                 offset += (4 * num_client_values)
-                filter_info['client_data_values'] = client_values
+                filter_info['client_data'] = client_values
+                filter_info['client_data_values'] = num_client_values
 
                 filters.append(filter_info)
         else:
@@ -417,74 +478,6 @@ class DataObjects(object):
         self._filter_pipeline = filters
         return self._filter_pipeline
 
-    def get_data(self):
-        """ Return the data pointed to in the DataObject. """
-
-        # offset and size from data storage message
-        msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
-        msg_offset = msg['offset_to_message']
-        version, dims, layout_class, property_offset = (
-            self._get_data_message_properties(msg_offset))
-
-        if layout_class == 0:  # compact storage
-            raise NotImplementedError("Compact storage")
-        elif layout_class == 1:  # contiguous storage
-            return self._get_contiguous_data(property_offset)
-        if layout_class == 2:  # chunked storage
-            return self._get_chunked_data(msg_offset)
-
-    def _get_data_message_properties(self, msg_offset):
-        """ Return the message properties of the DataObject. """
-        dims, layout_class, property_offset = None, None, None
-        version, arg1, arg2 = struct.unpack_from(
-            '<BBB', self.msg_data, msg_offset)
-        if (version == 1) or (version == 2):
-            dims = arg1
-            layout_class = arg2
-            property_offset = msg_offset
-            property_offset += struct.calcsize('<BBB')
-            # reserved fields: 1 byte, 1 int
-            property_offset += struct.calcsize('<BI')
-            # compact storage (layout class 0) not supported:
-            assert (layout_class == 1) or (layout_class == 2)
-        elif (version == 3) or (version == 4):
-            layout_class = arg1
-            property_offset = msg_offset
-            property_offset += struct.calcsize('<BB')
-        assert (version >= 1) and (version <= 4)
-        return version, dims, layout_class, property_offset
-
-    def _get_contiguous_data(self, property_offset):
-        data_offset, = struct.unpack_from('<Q', self.msg_data, property_offset)
-
-        if data_offset == UNDEFINED_ADDRESS:
-            # no storage is backing array, return all zeros
-            return np.zeros(self.shape, dtype=self.dtype)
-
-        if not isinstance(self.dtype, tuple):
-            # return a memory-map to the stored array with copy-on-write
-            return np.memmap(self.fh, dtype=self.dtype, mode='c',
-                             offset=data_offset, shape=self.shape, order='C')
-        else:
-            dtype_class = self.dtype[0]
-            if dtype_class == 'REFERENCE':
-                size = self.dtype[1]
-                if size != 8:
-                    raise NotImplementedError('Unsupported Reference type')
-                ref_addresses = np.memmap(
-                    self.fh, dtype=('<u8'), mode='c', offset=data_offset,
-                    shape=self.shape, order='C')
-                return np.array([Reference(addr) for addr in ref_addresses])
-            else:
-                raise NotImplementedError('datatype not implemented')
-
-    def _get_chunked_data(self, offset):
-        """ Return data which is chunked. """
-        self._get_chunk_params()
-        chunk_btree = BTreeV1RawDataChunks(
-            self.fh, self._chunk_address, self._chunk_dims)
-        return chunk_btree.construct_data_from_chunks(
-            self.chunks, self.shape, self.dtype, self.filter_pipeline)
 
     def _get_chunk_params(self):
         """
@@ -639,6 +632,28 @@ class DataObjects(object):
         for creationorder, value in sorted(adict.items()):
             yield value
 
+
+    def _get_data_message_properties(self, msg_offset):
+        """ Return the message properties of the DataObject. """
+        dims, layout_class, property_offset = None, None, None
+        version, arg1, arg2 = struct.unpack_from(
+            '<BBB', self.msg_data, msg_offset)
+        if (version == 1) or (version == 2):
+            dims = arg1
+            layout_class = arg2
+            property_offset = msg_offset
+            property_offset += struct.calcsize('<BBB')
+            # reserved fields: 1 byte, 1 int
+            property_offset += struct.calcsize('<BI')
+            # compact storage (layout class 0) not supported:
+            assert (layout_class == 1) or (layout_class == 2)
+        elif (version == 3) or (version == 4):
+            layout_class = arg1
+            property_offset = msg_offset
+            property_offset += struct.calcsize('<BB')
+        assert (version >= 1) and (version <= 4)
+        return version, dims, layout_class, property_offset
+
     @staticmethod
     def _decode_link_info_msg(data, offset):
         version, flags = struct.unpack_from('<BB', data, offset)
@@ -655,10 +670,31 @@ class DataObjects(object):
         data = _unpack_struct_from(fmt, data, offset)
         return {k: None if v == UNDEFINED_ADDRESS else v for k, v in data.items()}
 
+    def get_id_storage_params(self):
+        """ Return msg offset, layout and offset from data storage message """
+        msg = self.find_msg_type(DATA_STORAGE_MSG_TYPE)[0]
+        msg_offset = msg['offset_to_message']
+        version, dims, layout_class, property_offset = (
+            self._get_data_message_properties(msg_offset))
+        return msg_offset, layout_class, property_offset
+    
     @property
     def is_dataset(self):
         """ True when DataObjects points to a dataset, False for a group. """
         return len(self.find_msg_type(DATASPACE_MSG_TYPE)) > 0
+    
+    @property
+    def is_datatype(self):
+        """ Is this a standalone datatype definition?"""
+        if self.msgs[0]['type'] == DATATYPE_MSG_TYPE:
+            #I'm thinking that for the moment, this almost certainly means 
+            #an unimplemented user datatype. If so, let's tell the higher
+            #level now, as the following will raise a NotImplementedError
+            x = DatatypeMessage(self.msg_data, self.msgs[0]['offset_to_message'])
+            return True
+        else:
+            return False
+
 
 
 def determine_data_shape(buf, offset):
@@ -694,10 +730,7 @@ def determine_data_shape(buf, offset):
 # all metadata fields are stored in little-endian byte order.
 
 
-GLOBAL_HEAP_ID = OrderedDict((
-    ('collection_address', 'Q'),  # 8 byte addressing
-    ('object_index', 'I'),
-))
+
 GLOBAL_HEAP_ID_SIZE = _structure_size(GLOBAL_HEAP_ID)
 
 # IV.A.2.m The Attribute Message
@@ -719,6 +752,16 @@ ATTR_MSG_HEADER_V3 = OrderedDict((
     ('character_set_encoding', 'B'),
 ))
 ATTR_MSG_HEADER_V3_SIZE = _structure_size(ATTR_MSG_HEADER_V3)
+
+ATTR_INFO_MESSAGE = OrderedDict((
+    ('version','B'),
+    ('flags','B'),
+    ('maximum_creation_index','H'),
+    ('fractal_heap_address','Q'),
+    ('name_btree_address','Q'),
+    ('creation_order_btree_address','Q'),
+))
+
 
 # IV.A.1.a Version 1 Data Object Header Prefix
 OBJECT_HEADER_V1 = OrderedDict((

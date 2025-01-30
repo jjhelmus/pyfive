@@ -17,3 +17,11 @@ def test_filter_pipeline_descr_v2():
         d = hfile['data']
         assert d.shape == (10,10,10)
         assert_almost_equal(d[0,0,0], 1.0)
+
+def test_filter_pipeline_compression_opts_v2():
+
+     with pyfive.File(FILTER_PIPELINE_V2_FILE) as hfile:
+        assert 'data' in hfile
+        d = hfile['data']
+        # the point of this test is to ensure we can actually retrieve the compression opts
+        x = d.compression_opts

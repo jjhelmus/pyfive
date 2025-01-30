@@ -11,6 +11,8 @@ from .core import _unpack_struct_from_file
 from .core import _unpack_integer
 from .core import InvalidHDF5File
 from .core import UNDEFINED_ADDRESS
+from math import prod
+import numpy as np
 
 
 class SuperBlock(object):
@@ -249,22 +251,22 @@ class FractalHeap(object):
         idtype = (firstbyte >> 4) & 3  # bit 4-5
         version = firstbyte >> 6  # bit 6-7
         data_offset = 1
-        if idtype == 0: # managed
-            assert version == 0
-            nbytes = self._managed_object_offset_size
-            offset = _unpack_integer(nbytes, heapid, data_offset)
-            data_offset += nbytes
+        match idtype:
+            case 0: # managed
+                assert version == 0
+                nbytes = self._managed_object_offset_size
+                offset = _unpack_integer(nbytes, heapid, data_offset)
+                data_offset += nbytes
+                nbytes = self._managed_object_length_size
+                size = _unpack_integer(nbytes, heapid, data_offset)
+                return self.managed[offset:offset+size]
+            case 1: # tiny
+                raise NotImplementedError
+            case 2: # huge
+                raise NotImplementedError
+            case _:
+                raise NotImplementedError
 
-            nbytes = self._managed_object_length_size
-            size = _unpack_integer(nbytes, heapid, data_offset)
-
-            return self.managed[offset:offset+size]
-        elif idtype == 1: # tiny
-            raise NotImplementedError
-        elif idtype == 2: # huge
-            raise NotImplementedError
-        else:
-            raise NotImplementedError
 
     def _min_size_integer(self, integer):
         """ Calculate the minimal required bytes to contain an integer. """
@@ -333,6 +335,90 @@ class FractalHeap(object):
             nindirect = nobjects - ndirect_max
         return ndirect, nindirect
 
+def get_vlen_string_data_contiguous(
+        fh, data_offset, global_heaps, shape, dtype
+):
+    """ Return the data for a variable which is made up of variable length string data """
+    # we need to import this from DatasetID, and that's imported from Dataobjects hence
+    # hiding it here in misc_low_level.
+    fh.seek(data_offset)
+    count = prod(shape)
+    _, _, character_set = dtype
+    if int(character_set) not in [0, 1]:
+        raise ValueError(f'Unexpected string type, cannot decode character set {character_set}')
+    value = np.empty(count,dtype=object)
+    offset = 0
+    buf = fh.read(16*count)
+    for i in range(count):
+        # vlen_size, = struct.unpack_from('<I', buf, offset=offset)
+        gheap_id = _unpack_struct_from(GLOBAL_HEAP_ID, buf, offset+4)
+        gheap_address = gheap_id['collection_address']
+        #print('Collection address for data', gheap_address)
+        if gheap_address not in global_heaps:
+            # load the global heap and cache the instance
+            gheap = GlobalHeap(fh, gheap_address)
+            global_heaps[gheap_address] = gheap
+        gheap = global_heaps[gheap_address]
+        value[i] = gheap.objects[gheap_id['object_index']]
+        offset +=16
+
+    # If character_set == 0 ascii character set, return as
+    # bytes. Otherwise return as UTF-8.
+    if character_set:
+        value = _convert_to_utf8_string_objects(value)
+
+    return value
+
+def get_vlen_string_data_from_chunk(
+        fh, data_offset, global_heaps, shape, dtype
+):
+    """Return the data for a data chunk which is made up of variable
+length string data.
+
+    """
+    # we need to import this from DatasetID, and that's imported from
+    # Dataobjects hence hiding it here in misc_low_level.
+    fh.seek(data_offset)
+    count = prod(shape)
+    character_set = dtype[2]
+    if int(character_set) not in [0, 1]:
+        raise ValueError(
+            "Unexpected string type, cannot decode character set "
+            f"{character_set!r}"
+        )
+
+    value = np.empty(count, dtype=object)
+    offset = 0
+    buf = fh.read(16*count)
+    for i in range(count):
+        gheap_id = _unpack_struct_from(GLOBAL_HEAP_ID, buf, offset + 4)
+        gheap_address = gheap_id['collection_address']
+        if gheap_address not in global_heaps:
+            gheap = GlobalHeap(fh, gheap_address)
+            global_heaps[gheap_address] = gheap
+
+        gheap = global_heaps[gheap_address]
+        value[i] = gheap.objects[gheap_id['object_index']]
+        offset +=16
+
+    # If character_set == 0 ascii character set, return as
+    # bytes. Otherwise return as UTF-8.
+    if character_set:
+        value = _convert_to_utf8_string_objects(value)
+
+    return value
+
+
+def _convert_to_utf8_string_objects(array):
+    """Convert an numpy array of byte string objects to an array of UTF-8
+    string objects.
+
+    """
+    decode = np.vectorize(lambda x: x.decode('utf-8'))
+    array = decode(array)
+    array = array.astype('O')
+    return array
+
 
 FORMAT_SIGNATURE = b'\211HDF\r\n\032\n'
 
@@ -398,6 +484,10 @@ SYMBOL_TABLE_ENTRY = OrderedDict((
     ('scratch', '16s'),
 ))
 
+GLOBAL_HEAP_ID = OrderedDict((
+    ('collection_address', 'Q'),  # 8 byte addressing
+    ('object_index', 'I'),
+))
 
 # III.D Disk Format: Level 1D - Local Heaps
 LOCAL_HEAP = OrderedDict((
