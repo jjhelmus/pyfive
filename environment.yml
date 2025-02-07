@@ -1,0 +1,9 @@
+---
+name: pyfive
+channels:
+  - conda-forge
+  - nodefaults
+
+dependencies:
+  - numpy
+  - s3fs
