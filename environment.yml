@@ -6,4 +6,5 @@ channels:
 
 dependencies:
   - numpy
+  - pip !=21.3
   - s3fs
