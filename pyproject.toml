@@ -32,6 +32,7 @@ dynamic = [
 ]
 dependencies = [
     "numpy",
+    "pip!=21.3",
     "s3fs",
 ]
 description = "A pure python HDF5 reader"
@@ -44,6 +45,7 @@ test = [
     "pytest>6.0.0",
     "pytest-xdist",
     "dask",
+    "flake8",
     "flask",
     "flask-cors",
     "h5netcdf",
