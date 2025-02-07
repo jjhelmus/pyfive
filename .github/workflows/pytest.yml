@@ -5,7 +5,7 @@ name: Pyfive Test
 
 on:
   push:
-    branches: [ master, modernize_package ]
+    branches: [ master, modernize_package ]  # leave only "master" after PR69 is merged
   pull_request:
     branches: [ master ]
   schedule:
