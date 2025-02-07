@@ -5,9 +5,11 @@ name: Python package
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, modernize_package ]
   pull_request:
     branches: [ master ]
+  schedule:
+    - cron: '0 0 * * *'  # nightly
 
 jobs:
   build:
@@ -16,20 +18,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3
+    - name: Test Python ${{ matrix.python-version }}
+    - uses: actions/checkout@v4
       with:
+        fetch-depth: 0
+    - uses: conda-incubator/setup-miniconda@v3
+      with:
+        activate-environment: pyfive
+        environment-file: environment.yml
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+        miniforge-version: "latest"
+        use-mamba: true
+    - name: Install Pyfive Test Mode
       run: |
-        python -m pip install --upgrade pip
-        python -m pip install flake8 pytest
-        python -m pip install -e .
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install -e .[test]
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
@@ -38,4 +43,4 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest
       run: |
-        pytest
+        pytest -n 2
