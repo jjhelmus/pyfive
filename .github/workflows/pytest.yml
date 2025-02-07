@@ -44,6 +44,7 @@ jobs:
       - name: Check environment contents
         run: |
           conda list
+          pip list
       - name: Test with pytest
         run: |
           pytest -n 2
