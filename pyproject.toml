@@ -33,7 +33,6 @@ dynamic = [
 dependencies = [
     "numpy",
     "pip!=21.3",
-    "s3fs",
 ]
 description = "A pure python HDF5 reader"
 license = {text = "BSD License, Version 3-Clause"}
@@ -54,6 +53,7 @@ test = [
     "h5py",
     "netCDF4",
     "moto",
+    "s3fs",
 ]
 
 # very possible these will be needed
