@@ -43,6 +43,8 @@ requires-python = ">=3.10"
 [project.optional-dependencies]
 test = [
     "pytest>6.0.0",
+    "pytest-cov>=2.10.1",
+    "pytest-html!=2.1.0",
     "pytest-xdist",
     "dask",
     "flake8",
@@ -83,3 +85,21 @@ readme = {file = "README.md", content-type = "text/markdown"}
 
 [tool.setuptools_scm]
 version_scheme = "release-branch-semver"
+
+[tool.pytest.ini_options]
+addopts = [
+    "--cov-report=xml:test-reports/coverage.xml",
+    "--cov-report=html:test-reports/coverage_html",
+    "--html=test-reports/report.html",
+]
+
+[tool.coverage.run]
+parallel = true
+source = ["esmvalcore"]
+    
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
