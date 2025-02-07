@@ -1,0 +1,83 @@
+[build-system]
+requires = [
+    "setuptools >= 40.6.0",
+    "setuptools_scm>=6.2",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+authors = [
+    {name = "Pyfive Development Team", email = "jjhelmus@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Natural Language :: English",
+    "Operating System :: POSIX :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dynamic = [
+    "readme",
+    "version",
+]
+dependencies = [
+    "numpy",
+    "s3fs",
+]
+description = "A pure python HDF5 reader"
+license = {text = "BSD License, Version 3-Clause"}
+name = "pyfive"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+test = [
+    "pytest>6.0.0",
+    "pytest-xdist",
+    "dask",
+    "flask",
+    "flask-cors",
+    "h5netcdf",
+    "h5py",
+    "netCDF4",
+    "moto",
+]
+
+# very possible these will be needed
+# at some point in the near future
+# doc = [
+#     "sphinx>=6.1.3",
+#     "pydata_sphinx_theme",
+# ]
+# develop = [
+#     "pre-commit",
+#     "pylint",
+#     "pydocstyle",
+# ]
+
+
+[project.urls]
+Code = "https://github.com/jjhelmus/pyfive"
+# Documentation = ""
+Issues = "https://github.com/jjhelmus/pyfive/issues"
+
+[tool.setuptools]
+include-package-data = true
+license-files = ["LICENSE"]
+packages = ["pyfive"]
+zip-safe = false  # possibly yes
+
+[tool.setuptools.dynamic]
+readme = {file = "README.md", content-type = "text/markdown"}
+
+[tool.setuptools_scm]
+version_scheme = "release-branch-semver"
