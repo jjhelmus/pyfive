@@ -11,6 +11,11 @@ on:
   schedule:
     - cron: '0 0 * * *'  # nightly
 
+# Required shell entrypoint to have properly configured bash shell
+defaults:
+  run:
+    shell: bash -l {0}
+
 jobs:
   build:
 
