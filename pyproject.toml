@@ -37,7 +37,7 @@ dependencies = [
 description = "A pure python HDF5 reader"
 license = {text = "BSD License, Version 3-Clause"}
 name = "pyfive"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 
 [project.optional-dependencies]
 test = [
