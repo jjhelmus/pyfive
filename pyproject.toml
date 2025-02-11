@@ -33,7 +33,6 @@ dynamic = [
 ]
 dependencies = [
     "numpy",
-    "pip!=21.3",
 ]
 description = "A pure python HDF5 reader"
 license = {text = "BSD License, Version 3-Clause"}
