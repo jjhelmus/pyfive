@@ -39,6 +39,7 @@ jobs:
           use-mamba: true
       - name: Install Pyfive Test Mode
         run: |
+          mamba install -c conda-forge pip
           pip install -e .[test]
       - name: Lint with flake8
         run: |
