@@ -95,7 +95,7 @@ addopts = [
 
 [tool.coverage.run]
 parallel = true
-source = ["esmvalcore"]
+source = ["pyfive"]
     
 [tool.coverage.report]
 exclude_lines = [
