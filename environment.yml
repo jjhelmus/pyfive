@@ -1,0 +1,9 @@
+---
+name: pyfive
+channels:
+  - conda-forge
+  - nodefaults
+
+dependencies:
+  - numpy
+  - python >=3.9

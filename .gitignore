@@ -1,2 +1,6 @@
 .coverage
 build
+pyfive.egg-info/
+pyfive/__pycache__/
+tests/__pycache__/
+test-reports
