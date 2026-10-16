@@ -101,6 +101,9 @@ addopts = [
     "--cov-report=html:test-reports/coverage_html",
     "--html=test-reports/report.html",
 ]
+markers = [
+    "timing_sensitive: compares run times, so can fail on shared or busy machines; skipped on GitHub Actions unless PYFIVE_RUN_TIMING_TESTS=1",
+]
 
 [tool.coverage.run]
 parallel = true

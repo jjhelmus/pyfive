@@ -3,6 +3,7 @@
 import struct
 import zlib
 
+import numpy as np
 from numcodecs import Fletcher32
 
 from .core import _unpack_struct_from_file
@@ -285,22 +286,7 @@ class BTreeV1RawDataChunks(BTreeV1):
             if filter_id == GZIP_DEFLATE_FILTER:
                 chunk_buffer = zlib.decompress(chunk_buffer)
             elif filter_id == SHUFFLE_FILTER:
-                buffer_size = len(chunk_buffer)
-                # The HDF5 shuffle filter only operates on the largest prefix
-                # of the buffer that is an exact multiple of itemsize; any
-                # trailing remainder bytes (e.g. from a filter applied before
-                # shuffle in the pipeline, such as fletcher32) are left
-                # unshuffled and simply copied through unchanged.
-                remainder = buffer_size % itemsize
-                main_size = buffer_size - remainder
-                tail = chunk_buffer[main_size:]
-                unshuffled_buffer = bytearray(main_size)
-                step = main_size // itemsize
-                for j in range(itemsize):
-                    start = j * step
-                    end = (j + 1) * step
-                    unshuffled_buffer[j::itemsize] = chunk_buffer[start:end]
-                chunk_buffer = bytes(unshuffled_buffer) + tail
+                chunk_buffer = cls._unshuffle(chunk_buffer, itemsize)
             elif filter_id == FLETCH32_FILTER:
                 cls._verify_fletcher32(chunk_buffer)
                 # strip off 4-byte checksum from end of buffer
@@ -320,6 +306,37 @@ class BTreeV1RawDataChunks(BTreeV1):
                     "Filter with id: %i import not supported" % (filter_id)
                 )
         return chunk_buffer
+
+    @staticmethod
+    def _unshuffle(chunk_buffer, itemsize):
+        """
+        Reverse the HDF5 shuffle filter and return the result as ``bytes``.
+
+        Shuffling stores byte 0 of every element, then byte 1, and so on;
+        this interleaves them back into elements. NumPy releases the GIL while
+        copying, unlike a bytearray slice assignment, so chunks can be
+        unshuffled on several threads at once.
+        """
+        # The HDF5 shuffle filter only operates on the largest prefix of the
+        # buffer that is an exact multiple of itemsize; any trailing remainder
+        # bytes (e.g. from a filter applied before shuffle in the pipeline,
+        # such as fletcher32) are left unshuffled and simply copied through.
+        buffer_size = len(chunk_buffer)
+        main_size = buffer_size - buffer_size % itemsize
+        count = main_size // itemsize
+        if itemsize == 1 or count == 0:
+            return bytes(chunk_buffer)
+
+        lanes = np.frombuffer(chunk_buffer, dtype=np.uint8, count=main_size)
+        unshuffled = np.empty(buffer_size, dtype=np.uint8)
+        elements = unshuffled[:main_size].reshape(count, itemsize)
+        for lane in range(itemsize):
+            elements[:, lane] = lanes[lane * count : (lane + 1) * count]
+        if main_size != buffer_size:
+            unshuffled[main_size:] = np.frombuffer(
+                chunk_buffer[main_size:], dtype=np.uint8
+            )
+        return unshuffled.tobytes()
 
     @staticmethod
     def _verify_fletcher32(chunk_buffer):

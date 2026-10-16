@@ -302,7 +302,12 @@ class File(Group):
             if not hasattr(filename, "seek"):
                 raise ValueError("File like object must have a seek method")
             fh = cast(BinaryIO, filename)
-            self.filename = getattr(filename, "name", "None")
+            # fsspec file objects expose `path` rather than `name`
+            self.filename = str(
+                getattr(filename, "name", None)
+                or getattr(filename, "path", None)
+                or "None"
+            )
         else:
             fh = open(filename, "rb")
             self._close = True

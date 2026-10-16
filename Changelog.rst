@@ -1,3 +1,11 @@
+Unreleased
+----------
+
+**Performance of chunked reads** (details, measurements and limits: :doc:`Performance improvements <optimisation_changes>`, or ``doc/optimisation_changes.rst``):
+
+* Fletcher32 verification now uses ``numcodecs`` (new dependency, ``numcodecs>=0.16.5``); matching of fetched ranges to chunks scales linearly; unshuffling releases the GIL.
+* ``set_parallelism(thread_count=N)`` now also threads decoding (default unchanged, 0); ``batch_request_size`` no longer causes a second, unthrottled fetch; fetched chunks are released as decoded.
+
 Version 1.1.1
 -------------
 

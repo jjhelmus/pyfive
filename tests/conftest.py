@@ -7,6 +7,23 @@ import requests
 from moto.moto_server.threaded_moto_server import ThreadedMotoServer
 
 
+def pytest_collection_modifyitems(config, items):
+    """Skip timing-sensitive tests on shared CI runners, where run times are too noisy.
+
+    They still run locally. Set PYFIVE_RUN_TIMING_TESTS=1 to run them on CI as well.
+    """
+    if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get(
+        "PYFIVE_RUN_TIMING_TESTS"
+    ):
+        return
+    skip = pytest.mark.skip(
+        reason="timing-sensitive test, skipped on GitHub Actions (set PYFIVE_RUN_TIMING_TESTS=1 to run)"
+    )
+    for item in items:
+        if "timing_sensitive" in item.keywords:
+            item.add_marker(skip)
+
+
 # some spoofy server parameters
 # test parameters; don't modify these
 port = 5555

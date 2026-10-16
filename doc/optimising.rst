@@ -6,6 +6,8 @@ HDF5 files can be large and complicated, with complex internal structures which 
 These complexities (and the overheads they introduce) can be mitigated by optimising how you access the data, but this requires an understanding of 
 how the data is stored in the file and how the data access library (in this case ``pyfive``) works.
 
+A record of the performance work done in ``pyfive`` itself, and what was measured, is in :doc:`optimisation_changes`.
+
 The data storage complexities arise from two main factors: the use of chunking, and the way attributes are stored in the files.
 
 **Chunking**: HDF5 files can store data in chunks, which allows for more efficient access to large datasets. 
@@ -85,6 +87,23 @@ For example, you can use the `concurrent.futures` module to read data from multi
     print("Results:", results)
 
 You can do the same thing to parallelise manipulations within the variables, by for example using, ``dask``, but that is beyond the scope of this document.
+
+Reading and decoding the chunks of a *single* variable can also be spread over threads inside ``pyfive``. Decompressing and unshuffling chunks
+is often most of the time spent reading a compressed variable, and it releases Python's global interpreter lock, so it does scale
+with the number of threads. This is off by default, because if you are already calling ``pyfive`` from your own threads (as above, or from ``dask``)
+the two layers of threads multiply. To use it, set the number of worker threads on the dataset identifier before reading:
+
+.. code-block:: python
+
+    import pyfive
+
+    with pyfive.File("data.h5", "r") as f:
+        dset = f['temp']
+        dset.id.set_parallelism(thread_count=4)
+        data = dset[...]  # chunks are read and decoded on four threads
+
+This applies to files on a local file system and to remote files read via ``fsspec``. It does not change the result of any read, only how quickly it completes;
+the benefit is greatest for large, compressed variables made up of many chunks.
 
 In addition, you can use the attributes ``max_request_block`` and ``batch_request_size`` to customise how requests are made to remote servers in the pyfive backend.
 
