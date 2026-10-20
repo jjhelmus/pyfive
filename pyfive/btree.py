@@ -3,11 +3,14 @@
 import struct
 import zlib
 
-import numpy as np
+from numcodecs import Fletcher32
 
 from .core import _unpack_struct_from_file
 from .core import _unpack_struct_from
 from .core import _unpack_integer
+
+
+_FLETCHER32_CODEC = Fletcher32()
 
 
 class AbstractBTree(object):
@@ -125,15 +128,27 @@ class BTreeV1RawDataChunks(BTreeV1):
     """
 
     NODE_TYPE = 1  # type: ignore[assignment]
+    _read_leaves = True
 
-    def __init__(self, fh, offset, dims, fetch_fn=None):
-        """initalize."""
+    def __init__(self, fh, offset, dims, fetch_fn=None, read_leaves=True):
+        """initalize.
+
+        If ``read_leaves`` is False, only the root and internal nodes are read. The
+        leaf node addresses are available as ``leaf_addresses`` (and ``last_offset`` still
+        covers them), which is enough to locate the index without reading it
+        all; see ``sample_chunk_addresses``.
+        """
         self.dims = dims
         self._fetch_fn = fetch_fn
+        self._read_leaves = read_leaves
+        self.leaf_addresses = []
         super().__init__(fh, offset)
 
     def _read_children(self):
         """Read children; fetch leaf nodes via fetch_fn when provided."""
+        if not self._read_leaves:
+            self._read_internal_nodes()
+            return
         if self._fetch_fn is None:
             super()._read_children()
             return
@@ -175,6 +190,30 @@ class BTreeV1RawDataChunks(BTreeV1):
             for addr, raw in zip(addresses, raw_buffers):
                 node = self._parse_node_from_buffer(raw, addr, node_level=0)
                 self._add_node(node)
+
+    def _read_internal_nodes(self):
+        """Read every level above the leaves, and record (but do not read) the leaves."""
+        if self.depth == 0:
+            self.leaf_addresses = [self.offset]
+            return
+        for node_level in range(self.depth, 1, -1):
+            for parent_node in self.all_nodes[node_level]:
+                for child_addr in parent_node["addresses"]:
+                    self._add_node(self._read_node(child_addr, node_level - 1))
+        for node in self.all_nodes[1]:
+            self.leaf_addresses.extend(node["addresses"])
+        if self.leaf_addresses:
+            self.last_offset = max(self.last_offset, max(self.leaf_addresses))
+
+    def sample_chunk_addresses(self):
+        """
+        The data addresses of the chunks listed in the first and last leaf nodes (after
+        ``read_leaves=False``), at the cost of reading just those two nodes.
+        """
+        addresses = []
+        for leaf in dict.fromkeys(self.leaf_addresses[:1] + self.leaf_addresses[-1:]):
+            addresses.extend(self._read_node(leaf, 0)["addresses"])
+        return addresses
 
     def _read_node(self, offset, node_level):
         """Return a single node in the b-tree located at a give offset."""
@@ -321,21 +360,18 @@ class BTreeV1RawDataChunks(BTreeV1):
     @staticmethod
     def _verify_fletcher32(chunk_buffer):
         """Verify a chunk with a fletcher32 checksum."""
-        # calculate checksums
-        if len(chunk_buffer) % 2:
-            arr = np.frombuffer(chunk_buffer[:-4] + b"\x00", "<u2")
-        else:
-            arr = np.frombuffer(chunk_buffer[:-4], "<u2")
-        sum1 = sum2 = np.uint32(0)
-        for i in arr:
-            sum1 = (sum1 + i) % 65535
-            sum2 = (sum2 + sum1) % 65535
-
-        # extract stored checksums
-        ref_sum1, ref_sum2 = np.frombuffer(chunk_buffer[-4:], ">u2")
-
-        # compare
-        if sum1 != ref_sum1 or sum2 != ref_sum2:
+        if len(chunk_buffer) < 4:
+            raise ValueError("fletcher32 checksum invalid")
+        # numcodecs cannot encode an empty payload; its checksum is zero.
+        checksum = (
+            _FLETCHER32_CODEC.encode(chunk_buffer[:-4])[-4:]
+            if len(chunk_buffer) > 4
+            else b"\x00\x00\x00\x00"
+        )
+        # Fletcher32 represents modulo-65535 zero as either 0 or 0xffff.
+        calculated = tuple(word % 65535 for word in struct.unpack(">HH", checksum))
+        stored = tuple(word % 65535 for word in struct.unpack(">HH", chunk_buffer[-4:]))
+        if calculated != stored:
             raise ValueError("fletcher32 checksum invalid")
         return True
 

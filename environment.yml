@@ -7,6 +7,7 @@ channels:
 dependencies:
   # core dependencies
   - numpy >=2
+  - numcodecs >=0.16.5
   - python >=3.11
   - fsspec
   - typing_extensions

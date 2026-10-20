@@ -14,8 +14,8 @@
 pyfive : A pure Python HDF5 file reader
 =======================================
 
-``pyfive`` is an open source library for reading HDF5 files written using
-pure Python (no C extensions). The package is still in development and not all
+``pyfive`` is an open source library for reading HDF5 files written in Python,
+using NumPy and numcodecs without the HDF5 C library. The package is still in development and not all
 features of HDF5 files are supported.
 
 ``pyfive`` aims to support the same API as [`h5py`](https://github.com/h5py/h5py) for reading files.
@@ -29,7 +29,9 @@ Dependencies
 ``pyfive`` is tested against Python versions 3.11 to 3.14.
 It may also work with other Python versions.
 
-The only dependencies to run the software besides Python is ``numpy``.
+Runtime dependencies are ``numpy``, ``numcodecs``, ``fsspec`` and
+``typing-extensions``. Fletcher32 checksum verification uses numcodecs' native
+implementation; pyfive itself does not require the HDF5 C library.
 
 Install
 =======
