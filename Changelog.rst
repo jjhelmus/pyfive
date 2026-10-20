@@ -1,7 +1,16 @@
-Unreleased
-----------
+Version 1.3.0
+-------------
 
-* New ``p5check`` command (``pyfive.p5check.check_layout``) which checks local or remote (``https://``, ``s3://``) files for fragmented chunk-index metadata and chunk sizes of one, without reading data.
+**2026-10-20**
+
+**Highlights**
+
+* Fix performance issues for fletcher32 via use of numcodecs. Closes #281 by `Bryan Lawrence <https://github.com/bnlawrence>`_ in https://github.com/NCAS-CMS/pyfive/pull/282
+* New ``p5check`` command (``pyfive.p5check.check_layout``) which checks local or remote (``https://``, ``s3://``) files; detect fragmented chunk-index metadata and unit chunk sizes by `Bryan Lawrence <https://github.com/bnlawrence>`_ in https://github.com/NCAS-CMS/pyfive/pull/287
+
+**Other changes**
+
+* add GHA for full testing of pyfive conda package by `Valeriu Predoi <https://github.com/valeriupredoi>`_ in https://github.com/NCAS-CMS/pyfive/pull/272
 
 Version 1.1.1
 -------------
