@@ -17,8 +17,11 @@ dependencies:
   - flask-cors
   - h5netcdf
   - h5py  # link to same hdf5 lib with netcdf4
+  # not a core dep for us so remove after testing OK
+  - hdf5 >=2
+  ###################################################
   - moto
-  - netcdf4 !=1.7.4  # github.com/Unidata/netcdf4-python/issues/1464
+  - netcdf4  # !=1.7.4  # github.com/Unidata/netcdf4-python/issues/1464
   - pre-commit  # with ruff and mypy
   - pytest
   - pytest-cov
