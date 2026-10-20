@@ -709,6 +709,38 @@ class DatasetID(ChunkRead):
 
         self.__index_built = True
 
+    def _scan_index(self):
+        """
+        Cheaply locate the chunk index without reading it all, for assessing file layout.
+
+        Reads only the internal b-tree nodes and two leaf nodes, rather than every leaf
+        as ``_build_index`` does. Returns ``(btree_start, btree_end, sampled_chunk)``
+        where ``sampled_chunk`` is the lowest chunk address seen in the first and last leaf
+        (so an upper bound on ``first_chunk``), or None if there is no chunk index to read.
+        """
+        if self._index_params is None:
+            raise RuntimeError("Attempt to scan index with no chunk index parameters")
+        if (
+            np.prod(self.shape) == 0
+            or self._index_params.chunk_address == UNDEFINED_ADDRESS
+        ):
+            return None
+        fh = self._fh
+        try:
+            tree = BTreeV1RawDataChunks(
+                fh,
+                self._index_params.chunk_address,
+                self._index_params.chunk_dims,
+                read_leaves=False,
+            )
+            addresses = tree.sample_chunk_addresses()
+        finally:
+            if self.posix:
+                fh.close()
+        if not addresses:
+            return None
+        return tree.offset, tree.last_offset, min(addresses)
+
     def _make_btree_fetch_fn(self):
         """
         Return fetch_fn(addresses, size) for b-tree leaf reads, or None.

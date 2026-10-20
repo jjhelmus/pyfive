@@ -48,6 +48,7 @@ requires-python = ">=3.11"
 
 [project.scripts]
 p5dump = "pyfive.p5dump:main"
+p5check = "pyfive.p5check:main"
 
 [project.optional-dependencies]
 test = [

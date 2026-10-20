@@ -1,3 +1,8 @@
+Unreleased
+----------
+
+* New ``p5check`` command (``pyfive.p5check.check_layout``) which checks local or remote (``https://``, ``s3://``) files for fragmented chunk-index metadata and chunk sizes of one, without reading data.
+
 Version 1.1.1
 -------------
 

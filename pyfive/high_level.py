@@ -17,6 +17,7 @@ from pyfive.core import InvalidHDF5File
 from pyfive.dataobjects import DataObjects, DatasetID
 from pyfive.misc_low_level import FORMAT_SIGNATURE, SuperBlock
 from pyfive.h5py import Datatype
+from pyfive.layout import check_datasets
 from pyfive.p5t import P5VlenStringType, P5ReferenceType, P5SequenceType
 from pyfive.utilities import HDF5OffsetWrapper, MetadataBufferingWrapper
 
@@ -180,6 +181,17 @@ class Group(Mapping):
         for k in self._links.keys():
             yield k
 
+    def _lazy_datasets(self) -> list:
+        """List of (path, dataset) for every dataset below this group, without reading any chunk index."""
+        found: list = []
+
+        def collect(name, obj):
+            if isinstance(obj, Dataset):
+                found.append((obj.name, obj))
+
+        self.visititems(collect, noindex=True)
+        return found
+
     def visit(self, func: Callable) -> object:
         """
         Recursively visit all names in the group and subgroups.
@@ -222,6 +234,8 @@ class Group(Mapping):
         else:
             get_obj = self.__getitem__
 
+        seen = {id(self._dataobjects)}  # guards against link cycles
+
         # Initialize queue using the correct getter
         queue = deque(get_obj(k) for k in self._links.keys())
 
@@ -232,7 +246,17 @@ class Group(Mapping):
             if ret is not None:
                 return ret
             if isinstance(obj, Group):
-                queue.extend(obj.values())
+                key = id(
+                    obj._dataobjects
+                )  # cached per file, so the same group has the same key
+                if key in seen:
+                    continue
+                seen.add(key)
+                # Mapping.values() would build chunk indexes even when noindex is set
+                if noindex:
+                    queue.extend(obj.get_lazy_view(k) for k in obj)
+                else:
+                    queue.extend(obj.values())
         return None
 
     @property
@@ -377,23 +401,9 @@ class File(Group):
     @property
     def consolidated_metadata(self) -> bool:
         """Returns True if all B-tree nodes for chunked datasets are located before the first chunk in the file."""
-        is_consolidated = True
-        f = self
-
-        # for all chunked datasets, check if all btree nodes are located before any dataset chunk
-        max_btree, min_chunk = None, None
-        for ds in f:
-            if isinstance(f[ds], Dataset):
-                if f[ds].id.layout_class == 2:
-                    if max_btree is None or f[ds].id.btree_range[1] > max_btree:
-                        max_btree = f[ds].id.btree_range[1]
-                    if min_chunk is None or f[ds].id.first_chunk < min_chunk:
-                        min_chunk = f[ds].id.first_chunk
-
-        if max_btree is not None and min_chunk is not None:
-            is_consolidated = max_btree < min_chunk
-
-        return is_consolidated
+        return not check_datasets(
+            self._lazy_datasets(), self.filename
+        ).fragmented_metadata
 
     def __repr__(self) -> str:
         return '<HDF5 file "%s" (mode r)>' % (os.path.basename(self.filename))
