@@ -42,11 +42,14 @@ jobs:
         run: |
           conda list
           pip list
-      - name: Test p5dump
+      - name: Test p5dump and p5check
         run: |
           which p5dump
           p5dump tests/data/groups.hdf5
           p5dump tests/data/issue23_A.nc
+          which p5check
+          p5check tests/data/groups.hdf5
+          p5check tests/data/issue23_A.nc
       - name: Test with pytest
         run: |
           python -c "import pyfive"
