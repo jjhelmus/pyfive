@@ -7,7 +7,6 @@ on:
   push:
     branches:
       - main
-      - test_p5check_conda_pkg
   schedule:
     - cron: "0 4 * * *"
 
